@@ -40,7 +40,6 @@ class FaceFilterApp:
         mode_frame = tk.Frame(self.root)
         mode_frame.pack(pady=(0, 8))
         tk.Label(mode_frame, text='Mode:', font=('Arial', 10, 'bold')).pack(side='left', padx=(0, 8))
-        tk.Button(mode_frame, text='Loopback', width=12, command=lambda: self.set_mode('loopback')).pack(side='left', padx=2)
         tk.Button(mode_frame, text='Filters', width=12, command=lambda: self.set_mode('filters')).pack(side='left', padx=2)
         tk.Button(mode_frame, text='Background', width=12, command=lambda: self.set_mode('background')).pack(side='left', padx=2)
 

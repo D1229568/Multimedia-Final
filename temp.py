@@ -70,6 +70,7 @@ filter_imgs = {
     'mustache':      ensure_rgba(cv2.imread('filters/filter2.png', cv2.IMREAD_UNCHANGED)),
     'glasses':       ensure_rgba(cv2.imread('filters/filter3.png', cv2.IMREAD_UNCHANGED)),
     'hat':           ensure_rgba(cv2.imread('filters/filter4.png', cv2.IMREAD_UNCHANGED)),
+    'crown':         ensure_rgba(cv2.imread('filters/crown.png', cv2.IMREAD_UNCHANGED)),
     'monster':       ensure_rgba(cv2.imread('filters/filter5.png', cv2.IMREAD_UNCHANGED)),
     'oxygen_mask':   ensure_rgba(cv2.imread('filters/filter6.png', cv2.IMREAD_UNCHANGED)),
     'covid_mask_1':  ensure_rgba(cv2.imread('filters/filter8.png', cv2.IMREAD_UNCHANGED)),
@@ -80,6 +81,11 @@ filter_imgs = {
     'covid_mask_6':  ensure_rgba(cv2.imread('filters/filter13.png', cv2.IMREAD_UNCHANGED)),
     'covid_mask_7':  ensure_rgba(cv2.imread('filters/filter14.png', cv2.IMREAD_UNCHANGED)),
     'ironman':      ensure_rgba(cv2.imread('filters/ironman.png', cv2.IMREAD_UNCHANGED)),
+    'batman':      ensure_rgba(cv2.imread('filters/batman.png', cv2.IMREAD_UNCHANGED)),
+    'dognose':       ensure_rgba(cv2.imread('filters/dognose.png', cv2.IMREAD_UNCHANGED)),
+    'dogear':       ensure_rgba(cv2.imread('filters/dogear.png', cv2.IMREAD_UNCHANGED)),
+    'clownnose':       ensure_rgba(cv2.imread('filters/clownnose.png', cv2.IMREAD_UNCHANGED)),
+    'clownhat':       ensure_rgba(cv2.imread('filters/clownhat.png', cv2.IMREAD_UNCHANGED)),
 }
 filter_types = list(filter_imgs.keys())
 
@@ -190,6 +196,44 @@ def dst_mask(face_lms, img):
         [face_lms.landmark[136].x * w, face_lms.landmark[152].y * h],   # bottomLeft
     ], dtype=np.float32)
 
+def dst_dog(face_lms, img):
+    h, w = img.shape[:2]
+    # Calculate face width based on eye landmarks
+    left_eye = face_lms.landmark[33]
+    right_eye = face_lms.landmark[263]
+    face_width = abs(right_eye.x - left_eye.x) * w
+    # Base overlay size (70% of face width)
+    base_size = face_width * 1.1
+    # Make nose wider: increase width by 20% relative to height
+    overlay_width = base_size * 1.2
+    overlay_height = base_size * 0.6  # Keep height the same
+    # Center at nose tip
+    nose_tip = face_lms.landmark[1]
+    x = int(nose_tip.x * w - overlay_width / 2)
+    # Shift nose overlay slightly upward
+    offset = overlay_height * 0.15  # move up by 15% of its height
+    y = int(nose_tip.y * h - overlay_height / 2 - offset)
+    return (x, y, int(overlay_width), int(overlay_height))
+
+def dst_nose(face_lms, img):
+    h, w = img.shape[:2]
+    # Calculate face width based on eye landmarks
+    left_eye = face_lms.landmark[33]
+    right_eye = face_lms.landmark[263]
+    face_width = abs(right_eye.x - left_eye.x) * w
+    # Base overlay size (70% of face width)
+    base_size = face_width * 0.5
+    # Make nose wider: increase width by 20% relative to height
+    overlay_width = base_size
+    overlay_height = base_size # Keep height the same
+    # Center at nose tip
+    nose_tip = face_lms.landmark[1]
+    x = int(nose_tip.x * w - overlay_width / 2)
+    # Shift nose overlay slightly upward
+    offset = overlay_height * 0.15  # move up by 15% of its height
+    y = int(nose_tip.y * h - overlay_height / 2 - offset)
+    return (x, y, int(overlay_width), int(overlay_height))
+
 # Map filter names to dst functions
 
 dst_funcs = {
@@ -206,7 +250,13 @@ dst_funcs = {
     'glasses':      dst_glasses,
     'mustache':     dst_bigote,
     'hat':          dst_hat,
+    'crown':        dst_hat, 
     'ironman':      dst_complete_face,
+    'batman':       dst_complete_face,
+    'dognose':      dst_dog,
+    'dogear':       dst_hat,
+    'clownnose':    dst_nose,
+    'clownhat':    dst_hat,
 }
 
 # ----- Process functions -----
@@ -367,11 +417,11 @@ def process_videofilters(frame):
             angle_buffer = smoothing*roll + (1-smoothing)*angle_buffer
             ang = -angle_buffer
             # Gunakan dst_complete_face dengan filter_name untuk fullface
-            if fname in ['ironman', 'anonymous', 'monster']:
+            if fname in ['ironman', 'anonymous', 'monster', 'oxygen_mask', 'batman']:
                 dst = dst_complete_face(face, out, fname)
             else:
                 dst = dst_funcs[fname](face, out)
-            if fname == 'hat':
+            if fname in ['hat', 'crown', 'clownhat']:
                 x,y,fw,fh = dst
                 out = overlay_png(out, rotate_image(fimg, ang), x, y, fw, fh)
             elif fname == 'glasses':
@@ -380,6 +430,24 @@ def process_videofilters(frame):
             elif fname == 'ironman':
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)
+            elif fname in ['dognose', 'clownnose']:
+                rotated = rotate_image(fimg, ang)
+                x, y, fw, fh = dst
+                out = overlay_png(out, rotated, x, y, fw, fh)
+                # If clownnose, also overlay clownhat
+                if fname == 'clownnose':
+                    hat_img = filter_imgs.get('clownhat')
+                    if hat_img is not None:
+                        rotated_hat = rotate_image(hat_img, ang)
+                        xh, yh, fwh, fhh = dst_hat(face, out)
+                        out = overlay_png(out, rotated_hat, xh, yh, fwh, fhh)
+
+                if fname == 'dognose':
+                    ear_img = filter_imgs.get('dogear')
+                    if ear_img is not None:
+                        rotated_ear = rotate_image(ear_img, ang)
+                        xh, yh, fwh, fhh = dst_hat(face, out)
+                        out = overlay_png(out, rotated_ear, xh, yh, fwh, fhh)
             else:
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)
@@ -395,6 +463,7 @@ bg_mode = 0
 
 def process_background(frame):
     #img = cv2.flip(frame, 1)
+    img = frame
     resized = cv2.resize(img, target_size)
     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     seg_map = seg_sess.run('SemanticPredictions:0', feed_dict={
