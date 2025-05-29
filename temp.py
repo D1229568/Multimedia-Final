@@ -51,20 +51,34 @@ bg_images = [
 ]
 
 # ----- Load face/filters images -----
+def ensure_rgba(img):
+    if img is None:
+        return None
+    if len(img.shape) == 2:
+        # grayscale, convert to RGBA
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+    if img.shape[2] == 3:
+        # RGB, tambahkan alpha channel penuh
+        b,g,r = cv2.split(img)
+        alpha = np.ones(b.shape, dtype=b.dtype) * 255
+        return cv2.merge((b,g,r,alpha))
+    return img
+
 filter_imgs = {
-    'anonymous':     cv2.imread('filters/filter1.png', cv2.IMREAD_UNCHANGED),
-    'mustache':      cv2.imread('filters/filter2.png', cv2.IMREAD_UNCHANGED),
-    'glasses':       cv2.imread('filters/filter3.png', cv2.IMREAD_UNCHANGED),
-    'hat':           cv2.imread('filters/filter4.png', cv2.IMREAD_UNCHANGED),
-    'monster':       cv2.imread('filters/filter5.png', cv2.IMREAD_UNCHANGED),
-    'oxygen_mask':   cv2.imread('filters/filter6.png', cv2.IMREAD_UNCHANGED),
-    'covid_mask_1':  cv2.imread('filters/filter8.png', cv2.IMREAD_UNCHANGED),
-    'covid_mask_2':  cv2.imread('filters/filter9.png', cv2.IMREAD_UNCHANGED),
-    'covid_mask_3':  cv2.imread('filters/filter10.png', cv2.IMREAD_UNCHANGED),
-    'covid_mask_4':  cv2.imread('filters/filter11.png', cv2.IMREAD_UNCHANGED),
-    'covid_mask_5':  cv2.imread('filters/filter12.png', cv2.IMREAD_UNCHANGED),
-    'covid_mask_6':  cv2.imread('filters/filter13.png', cv2.IMREAD_UNCHANGED),
-    'covid_mask_7':  cv2.imread('filters/filter14.png', cv2.IMREAD_UNCHANGED),
+    'anonymous':     ensure_rgba(cv2.imread('filters/filter1.png', cv2.IMREAD_UNCHANGED)),
+    'mustache':      ensure_rgba(cv2.imread('filters/filter2.png', cv2.IMREAD_UNCHANGED)),
+    'glasses':       ensure_rgba(cv2.imread('filters/filter3.png', cv2.IMREAD_UNCHANGED)),
+    'hat':           ensure_rgba(cv2.imread('filters/filter4.png', cv2.IMREAD_UNCHANGED)),
+    'monster':       ensure_rgba(cv2.imread('filters/filter5.png', cv2.IMREAD_UNCHANGED)),
+    'oxygen_mask':   ensure_rgba(cv2.imread('filters/filter6.png', cv2.IMREAD_UNCHANGED)),
+    'covid_mask_1':  ensure_rgba(cv2.imread('filters/filter8.png', cv2.IMREAD_UNCHANGED)),
+    'covid_mask_2':  ensure_rgba(cv2.imread('filters/filter9.png', cv2.IMREAD_UNCHANGED)),
+    'covid_mask_3':  ensure_rgba(cv2.imread('filters/filter10.png', cv2.IMREAD_UNCHANGED)),
+    'covid_mask_4':  ensure_rgba(cv2.imread('filters/filter11.png', cv2.IMREAD_UNCHANGED)),
+    'covid_mask_5':  ensure_rgba(cv2.imread('filters/filter12.png', cv2.IMREAD_UNCHANGED)),
+    'covid_mask_6':  ensure_rgba(cv2.imread('filters/filter13.png', cv2.IMREAD_UNCHANGED)),
+    'covid_mask_7':  ensure_rgba(cv2.imread('filters/filter14.png', cv2.IMREAD_UNCHANGED)),
+    'ironman':      ensure_rgba(cv2.imread('filters/ironman.png', cv2.IMREAD_UNCHANGED)),
 }
 filter_types = list(filter_imgs.keys())
 
@@ -72,10 +86,43 @@ filter_types = list(filter_imgs.keys())
 
 def overlay_png(bg, fg, x, y, w, h):
     fg = cv2.resize(fg, (w, h), interpolation=cv2.INTER_AREA)
-    alpha = fg[:, :, 3] / 255.0
+    # Pastikan overlay tidak keluar dari frame
+    h_bg, w_bg = bg.shape[:2]
+    x1, y1 = max(0, x), max(0, y)
+    x2, y2 = min(x + w, w_bg), min(y + h, h_bg)
+    fx1, fy1 = x1 - x, y1 - y
+    fx2, fy2 = fx1 + (x2 - x1), fy1 + (y2 - y1)
+    if fx2 <= fx1 or fy2 <= fy1:
+        return bg  # Tidak ada area yang bisa di-overlay
+    alpha = fg[fy1:fy2, fx1:fx2, 3] / 255.0
     for c in range(3):
-        bg[y:y+h, x:x+w, c] = (
-            bg[y:y+h, x:x+w, c] * (1 - alpha) + fg[:, :, c] * alpha
+        bg[y1:y2, x1:x2, c] = (
+            bg[y1:y2, x1:x2, c] * (1 - alpha) + fg[fy1:fy2, fx1:fx2, c] * alpha
+        )
+    return bg
+
+def overlay_rotated_filter(bg, filter_img, top_left, size, angle):
+    fw, fh = size
+    # Resize filter to target size
+    resized = cv2.resize(filter_img, (fw, fh), interpolation=cv2.INTER_AREA)
+    # Rotate filter around its center (with padding)
+    center_of_rotation = (fw // 2, fh // 2)
+    rotated = rotate_image(resized, angle, center_of_rotation)
+    # Compute overlay region
+    x1, y1 = int(top_left[0]), int(top_left[1])
+    x2, y2 = x1 + fw, y1 + fh
+    # Handle out-of-bounds
+    bx1, by1 = max(0, x1), max(0, y1)
+    bx2, by2 = min(bg.shape[1], x2), min(bg.shape[0], y2)
+    fx1, fy1 = bx1 - x1, by1 - y1
+    fx2, fy2 = fx1 + (bx2 - bx1), fy1 + (by2 - by1)
+    if fx2 <= fx1 or fy2 <= fy1:
+        return bg  # Nothing to overlay
+    # Alpha blend
+    alpha = rotated[fy1:fy2, fx1:fx2, 3] / 255.0
+    for c in range(3):
+        bg[by1:by2, bx1:bx2, c] = (
+            bg[by1:by2, bx1:bx2, c] * (1 - alpha) + rotated[fy1:fy2, fx1:fx2, c] * alpha
         )
     return bg
 
@@ -83,11 +130,21 @@ def overlay_png(bg, fg, x, y, w, h):
 
 def dst_complete_face(face_lms, img):
     h, w = img.shape[:2]
+    # Gunakan landmark yang lebih presisi untuk full face
+    left_eye = face_lms.landmark[33]
+    right_eye = face_lms.landmark[263]
+    nose = face_lms.landmark[1]
+    chin = face_lms.landmark[152]
+    face_width = abs(right_eye.x - left_eye.x) * w * 1.8  # Perluas sedikit
+    face_height = abs(chin.y - nose.y) * h * 2.2  # Perluas untuk mencakup seluruh wajah
+    center_x = nose.x * w
+    center_y = nose.y * h
+    
     return np.array([
-        [face_lms.landmark[54].x*w*0.9,  face_lms.landmark[54].y*h*0.9],  # top-left
-        [face_lms.landmark[284].x*w*1.1, face_lms.landmark[284].y*h*0.9], # top-right
-        [face_lms.landmark[365].x*w*1.1, face_lms.landmark[365].y*h*1.1], # bottom-right
-        [face_lms.landmark[136].x*w*0.9,  face_lms.landmark[136].y*h*1.1], # bottom-left
+        [center_x - face_width/2, center_y - face_height/2],  # top-left
+        [center_x + face_width/2, center_y - face_height/2],  # top-right
+        [center_x + face_width/2, center_y + face_height/2],  # bottom-right
+        [center_x - face_width/2, center_y + face_height/2],  # bottom-left
     ], dtype=np.float32)
 
 def dst_glasses(face_lms, img):
@@ -142,6 +199,7 @@ dst_funcs = {
     'glasses':      dst_glasses,
     'mustache':     dst_bigote,
     'hat':          dst_hat,
+    'ironman':      dst_complete_face,
 }
 
 # ----- Process functions -----
@@ -153,19 +211,45 @@ draw_points = []
 sb_mode = 0  # 0: Manos, 1: Tablero
 
 def apply_homography(source, dstMat, imageFace):
+    if source is None or len(source.shape) != 3 or source.shape[2] != 4:
+        print("[ERROR] Invalid source image for homography")
+        return imageFace
+        
     (srcH, srcW) = source.shape[:2]
     # source corners in TL, TR, BR, BL order
     srcMat = np.array([[0, 0], [srcW, 0], [srcW, srcH], [0, srcH]], dtype=np.float32)
-    # compute homography and warp
-    H, _ = cv2.findHomography(srcMat, dstMat)
-    warped = cv2.warpPerspective(source, H, (imageFace.shape[1], imageFace.shape[0]))
+    
+    # Pastikan dstMat valid
+    if not isinstance(dstMat, np.ndarray) or dstMat.shape != (4, 2):
+        print("[ERROR] Invalid destination points for homography")
+        return imageFace
+    
+    # compute homography dengan mode yang lebih robust
+    H, _ = cv2.findHomography(srcMat, dstMat, cv2.RANSAC, 5.0)
+    if H is None:
+        print("[ERROR] Could not compute homography")
+        return imageFace
+        
+    # Warp dengan interpolasi yang lebih baik
+    warped = cv2.warpPerspective(
+        source, H, (imageFace.shape[1], imageFace.shape[0]),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_TRANSPARENT
+    )
 
-    # split out the channels and alpha mask
-    overlay_img  = warped[:, :, :3]
-    overlay_mask = warped[:, :, 3:] / 255.0
+    # split out the channels and alpha mask dengan normalisasi yang lebih baik
+    overlay_img = warped[:, :, :3].astype(float)
+    overlay_mask = warped[:, :, 3:].astype(float) / 255.0
     background_mask = 1.0 - overlay_mask
 
     # composite
+    # Pastikan shape mask dan imageFace cocok
+    h, w = imageFace.shape[:2]
+    oh, ow = overlay_mask.shape[:2]
+    if oh != h or ow != w:
+        overlay_img = cv2.resize(overlay_img, (w, h), interpolation=cv2.INTER_AREA)
+        overlay_mask = cv2.resize(overlay_mask, (w, h), interpolation=cv2.INTER_AREA)
+        background_mask = 1.0 - overlay_mask
     for c in range(3):
         imageFace[:, :, c] = (imageFace[:, :, c] * background_mask[:, :, 0] +
                               overlay_img[:, :, c] * overlay_mask[:, :, 0])
@@ -173,56 +257,121 @@ def apply_homography(source, dstMat, imageFace):
 
 
 def process_smartboard(frame):
-    global draw_points
-    img = cv2.flip(frame, 1)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    results = mp_hands.process(img_rgb)
-    out = img.copy()
-    if results.multi_hand_landmarks:
-        if sb_mode == 0:
-            for hand in results.multi_hand_landmarks:
-                mp.solutions.drawing_utils.draw_landmarks(
-                    out, hand, mp.solutions.hands.HAND_CONNECTIONS)
-        else:
-            h, w = out.shape[:2]
-            for hand in results.multi_hand_landmarks:
-                x4,y4 = mp.solutions.drawing_utils._normalized_to_pixel_coordinates(
-                    hand.landmark[4].x, hand.landmark[4].y, w, h)
-                x8,y8 = mp.solutions.drawing_utils._normalized_to_pixel_coordinates(
-                    hand.landmark[8].x, hand.landmark[8].y, w, h)
-                if x4 and x8:
-                    dist = np.linalg.norm([x4-x8, y4-y8])
-                    if dist < 20:
-                        draw_points.append((x4,y4))
-                    cv2.circle(out, (x4,y4), 4, (166,0,163), -1)
-                    cv2.circle(out, (x8,y8), 4, (0,255,0), -1)
-            for p in draw_points:
-                cv2.circle(out, p, 4, (166,0,163), -1)
-    return out
+    pass
 
 # Video Filters globals
 vf_mode = 0  # index in filter_types
 
+def calculate_face_angle(left_eye, right_eye):
+    # Calculate the angle in degrees between the eyes
+    dx = right_eye[0] - left_eye[0]
+    dy = right_eye[1] - left_eye[1]
+    angle = np.degrees(np.arctan2(dy, dx))
+    return angle
+
+def rotate_image(image, angle):
+    if image is None:
+        return None
+    
+    # Pastikan image memiliki alpha channel
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+    
+    h, w = image.shape[:2]
+    # Tambah padding untuk menghindari cropping saat rotasi
+    pad = int(max(h, w) * 1.0)  # Tambah padding lebih besar
+    
+    # Buat border dengan alpha=0
+    pad_img = cv2.copyMakeBorder(
+        image, pad, pad, pad, pad,
+        cv2.BORDER_CONSTANT,
+        value=[0,0,0,0]
+    )
+    
+    # Hitung rotasi dari tengah dengan interpolasi yang lebih baik
+    ph, pw = pad_img.shape[:2]
+    M = cv2.getRotationMatrix2D((pw/2, ph/2), angle, 1.0)
+    
+    # Aplikasikan rotasi dengan handle alpha channel
+    rotated = cv2.warpAffine(
+        pad_img, M, (pw, ph),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_TRANSPARENT
+    )
+    
+    # Crop kembali ke ukuran asli dari tengah
+    startx = (pw-w)//2
+    starty = (ph-h)//2
+    return rotated[starty:starty+h, startx:startx+w]
+
+# Smoothing buffer for glasses landmarks
+smooth_glasses = {'points': None, 'alpha': 0.5}
+
+def smooth_landmarks(new_points, buffer, alpha=0.5):
+    if buffer['points'] is None:
+        buffer['points'] = np.array(new_points)
+    else:
+        buffer['points'] = alpha * np.array(new_points) + (1 - alpha) * buffer['points']
+    return buffer['points']
+
+# Calculate roll angle
+def calculate_face_angle(l, r): return np.degrees(np.arctan2(r[1]-l[1], r[0]-l[0]))
+
+# Smoothing buffer
+angle_buffer = 0.0
+smoothing = 0.2
+
+def compute_eye_center_and_angle(landmarks, w, h):
+    left_eye = np.array([landmarks[33].x * w, landmarks[33].y * h])
+    right_eye = np.array([landmarks[263].x * w, landmarks[263].y * h])
+    center = (left_eye + right_eye) / 2
+    angle = np.degrees(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
+    return tuple(center.astype(int)), angle
+
+def is_mouth_open(face_lms, w, h, threshold=15):
+    # Gunakan landmark bibir atas (13) dan bawah (14)
+    upper_lip = np.array([face_lms.landmark[13].x * w, face_lms.landmark[13].y * h])
+    lower_lip = np.array([face_lms.landmark[14].x * w, face_lms.landmark[14].y * h])
+    mouth_dist = np.linalg.norm(upper_lip - lower_lip)
+    return mouth_dist > threshold
+
 def process_videofilters(frame):
-    img = cv2.flip(frame, 1)
-    h, w = img.shape[:2]
+    global angle_buffer
+    img = cv2.flip(frame, 1); h, w = img.shape[:2]
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    results = mp_face_mesh.process(rgb)
+    res = mp_face_mesh.process(rgb)
     out = img.copy()
-    if results.multi_face_landmarks:
+    if res.multi_face_landmarks:
         fname = filter_types[vf_mode]
-        fimg  = filter_imgs[fname]
-        if fimg is None:
+        fimg = filter_imgs[fname]
+        if fimg is None or (fname == 'ironman' and (fimg is None or fimg.shape[2] != 4)):
+            print(f"[ERROR] Filter image for '{fname}' is missing or not RGBA!")
             return out
-        for face in results.multi_face_landmarks:
+        for face in res.multi_face_landmarks:
+            l = np.array([(face.landmark[33].x*w), int(face.landmark[33].y*h)])
+            r = np.array([(face.landmark[263].x*w), int(face.landmark[263].y*h)])
+            roll = calculate_face_angle(l, r)
+            roll = max(min(roll, 45), -45)
+            angle_buffer = smoothing*roll + (1-smoothing)*angle_buffer
+            ang = -angle_buffer
             dst = dst_funcs[fname](face, out)
             if fname == 'hat':
-                x, y, fw, fh = dst
-                out = overlay_png(out, fimg, x, y, fw, fh)
+                x,y,fw,fh = dst
+                out = overlay_png(out, rotate_image(fimg, ang), x, y, fw, fh)
             elif fname == 'glasses':
-                out = apply_homography(fimg, dst, out)
+                rotated = rotate_image(fimg, ang)
+                out = apply_homography(rotated, dst, out)
+            elif fname == 'ironman':
+                rotated = rotate_image(fimg, ang)
+                out = apply_homography(rotated, dst, out)
             else:
-                out = apply_homography(fimg, dst, out)
+                rotated = rotate_image(fimg, ang)
+                out = apply_homography(rotated, dst, out)
+            if fname != 'mustache' and is_mouth_open(face, w, h, threshold=15):
+                mustache_img = filter_imgs['mustache']
+                dst_mustache = dst_funcs['mustache'](face, out)
+                rotated_mustache = rotate_image(mustache_img, ang)
+                out = apply_homography(rotated_mustache, dst_mustache, out)
     return out
 
 # Background Replacement globals
@@ -252,7 +401,6 @@ if __name__ == '__main__':
         if not ret: break
         if mode == 'loopback': out = process_loopback(frame)
         elif mode == 'filters':   out = process_videofilters(frame)
-        elif mode == 'smartboard':out = process_smartboard(frame)
         elif mode == 'background':out = process_background(frame)
         cv2.imshow('Camera', out)
         key = cv2.waitKey(1) & 0xFF
@@ -263,14 +411,11 @@ if __name__ == '__main__':
             break
         elif key == ord('1'): mode = 'loopback'
         elif key == ord('2'): mode = 'filters'
-        elif key == ord('3'): mode = 'smartboard'
         elif key == ord('4'): mode = 'background'
         elif key == ord('n') and mode == 'filters':
             vf_mode = (vf_mode + 1) % len(filter_types)
         elif key == ord('p') and mode == 'filters':
             vf_mode = (vf_mode - 1) % len(filter_types)
-        elif key == ord('s') and mode == 'smartboard':
-            sb_mode = 1 - sb_mode
         elif key == ord('b') and mode == 'background':
             bg_mode = (bg_mode + 1) % len(bg_images)
         elif key == ord('v'):
