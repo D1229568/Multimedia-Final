@@ -65,6 +65,7 @@ def ensure_rgba(img):
     return img
 
 filter_imgs = {
+    'none':         None,  # No filter option
     'anonymous':     ensure_rgba(cv2.imread('filters/filter1.png', cv2.IMREAD_UNCHANGED)),
     'mustache':      ensure_rgba(cv2.imread('filters/filter2.png', cv2.IMREAD_UNCHANGED)),
     'glasses':       ensure_rgba(cv2.imread('filters/filter3.png', cv2.IMREAD_UNCHANGED)),
@@ -343,12 +344,17 @@ def is_mouth_open(face_lms, w, h, threshold=15):
 
 def process_videofilters(frame):
     global angle_buffer
-    img = cv2.flip(frame, 1); h, w = img.shape[:2]
+    #img = cv2.flip(frame, 1); h, w = img.shape[:2]
+    img = frame 
+    h, w = img.shape[:2]
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     res = mp_face_mesh.process(rgb)
     out = img.copy()
     if res.multi_face_landmarks:
         fname = filter_types[vf_mode]
+        # If 'none' filter is selected, just return the original frame
+        if fname == 'none':
+            return out
         fimg = filter_imgs[fname]
         if fimg is None or (fname == 'ironman' and (fimg is None or fimg.shape[2] != 4)):
             print(f"[ERROR] Filter image for '{fname}' is missing or not RGBA!")
@@ -388,7 +394,7 @@ def process_videofilters(frame):
 bg_mode = 0
 
 def process_background(frame):
-    img = cv2.flip(frame, 1)
+    #img = cv2.flip(frame, 1)
     resized = cv2.resize(img, target_size)
     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     seg_map = seg_sess.run('SemanticPredictions:0', feed_dict={
@@ -403,15 +409,15 @@ def process_background(frame):
 # ----- Main Loop -----
 if __name__ == '__main__':
     cap = cv2.VideoCapture(0)
-    mode = 'loopback'
+    mode = 'filters'  # Start in filters mode with 'none' filter
     recording = False
     video_writer = None
     while True:
         ret, frame = cap.read()
         if not ret: break
-        if mode == 'loopback': out = process_loopback(frame)
-        elif mode == 'filters':   out = process_videofilters(frame)
+        if mode == 'filters':   out = process_videofilters(frame)
         elif mode == 'background':out = process_background(frame)
+        else: out = frame  # Default fallback
         cv2.imshow('Camera', out)
         key = cv2.waitKey(1) & 0xFF
         h, w = out.shape[:2]
@@ -419,9 +425,8 @@ if __name__ == '__main__':
             video_writer.write(out)
         if key == 27:  # ESC
             break
-        elif key == ord('1'): mode = 'loopback'
-        elif key == ord('2'): mode = 'filters'
-        elif key == ord('4'): mode = 'background'
+        elif key == ord('1'): mode = 'filters'  # Changed from loopback to filters
+        elif key == ord('2'): mode = 'background'  # Changed mode numbers
         elif key == ord('n') and mode == 'filters':
             vf_mode = (vf_mode + 1) % len(filter_types)
         elif key == ord('p') and mode == 'filters':
