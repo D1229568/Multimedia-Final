@@ -7,6 +7,7 @@ import threading
 import datetime
 import numpy as np
 import temp  # pastikan temp.py ada di folder yang sama
+import speech_recognition as sr
 
 class FaceFilterApp:
     def __init__(self, root):
@@ -21,8 +22,14 @@ class FaceFilterApp:
         self.filter_label = tk.StringVar()
         self.mode_label = tk.StringVar()
         self.cap = cv2.VideoCapture(0)
+        self.voice_status = tk.StringVar(value='Voice: Listening for "transform"...')
         self.create_widgets()
         self.update_video()
+
+        # Thread untuk voice recognition
+        self.voice_thread = threading.Thread(target=self.voice_recognition_loop, daemon=True)
+        self.voice_thread.start()
+        self.voice_active = True
 
     def create_widgets(self):
         # Video panel
@@ -82,13 +89,25 @@ class FaceFilterApp:
         status_frame.pack(pady=(0, 4))
         tk.Label(status_frame, textvariable=self.mode_label, font=('Arial', 10, 'bold')).pack(side='left', padx=8)
         tk.Label(status_frame, textvariable=self.filter_label, font=('Arial', 10)).pack(side='left', padx=8)
+        tk.Label(status_frame, textvariable=self.voice_status, font=('Arial', 10, 'italic'), fg='blue').pack(side='left', padx=8)
         self.update_labels()
 
     def select_filter(self, idx):
         if self.mode == 'filters':
-            temp.vf_mode = idx
-            self.update_labels()
-            self.update_filter_buttons()
+            fname = temp.filter_types[idx]
+            if fname == 'ironman':
+                # Step 1: Tidak ada filter sama sekali
+                temp.vf_mode = -1  # mode khusus: tidak ada filter
+                self.update_labels()
+                self.update_filter_buttons()
+                # Step 2: Tampilkan text "Say transform"
+                self.voice_status.set('Say "transform" to activate Ironman!')
+                self.await_ironman = True
+            else:
+                temp.vf_mode = idx
+                self.update_labels()
+                self.update_filter_buttons()
+                self.await_ironman = False
 
     def update_filter_buttons(self):
         for idx, btn in enumerate(self.filter_buttons):
@@ -163,21 +182,26 @@ class FaceFilterApp:
         if not ret:
             self.root.after(10, self.update_video)
             return
-        # === PIPELINE: Pastikan urutan sama dengan mode OpenCV window ===
-        # 1. Flip frame (mirror)
         frame = cv2.flip(frame, 1)
-        # 2. Proses filter di BGR (jangan convert ke RGB sebelum filter)
-        if self.mode == 'loopback':
-            out = temp.process_loopback(frame)
-        elif self.mode == 'filters':
-            out = temp.process_videofilters(frame)
-        elif self.mode == 'smartboard':
-            out = temp.process_smartboard(frame)
-        elif self.mode == 'background':
-            out = temp.process_background(frame)
+        # Step 1: Jika sedang menunggu ironman, tampilkan frame + text
+        if hasattr(self, 'await_ironman') and self.await_ironman:
+            out = frame.copy()
+            cv2.putText(out, 'Say "transform"', (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 4, cv2.LINE_AA)
         else:
-            out = frame
-        # 3. Konversi ke RGB hanya untuk display di Tkinter
+            if self.mode == 'loopback':
+                out = temp.process_loopback(frame)
+            elif self.mode == 'filters':
+                # Jika temp.vf_mode == -1, tidak tampilkan filter apapun
+                if getattr(temp, 'vf_mode', 0) == -1:
+                    out = frame.copy()
+                else:
+                    out = temp.process_videofilters(frame)
+            elif self.mode == 'smartboard':
+                out = temp.process_smartboard(frame)
+            elif self.mode == 'background':
+                out = temp.process_background(frame)
+            else:
+                out = frame
         out_rgb = cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
         self.frame = out_rgb.copy()
         img = Image.fromarray(out_rgb)
@@ -188,7 +212,38 @@ class FaceFilterApp:
             self.video_writer.write(cv2.cvtColor(out_rgb, cv2.COLOR_RGB2BGR))
         self.root.after(10, self.update_video)
 
+    def voice_recognition_loop(self):
+        recognizer = sr.Recognizer()
+        mic = sr.Microphone()
+        while self.voice_active:
+            try:
+                with mic as source:
+                    recognizer.adjust_for_ambient_noise(source)
+                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=3)
+                try:
+                    text = recognizer.recognize_google(audio, language='en-US').lower()
+                    if hasattr(self, 'await_ironman') and self.await_ironman and 'transform' in text:
+                        self.voice_status.set('Voice: "transform" detected!')
+                        self.set_ironman_filter()
+                        self.await_ironman = False
+                    else:
+                        self.voice_status.set(f'Voice: Heard "{text}" (waiting for "transform")')
+                except sr.UnknownValueError:
+                    self.voice_status.set('Voice: Could not understand audio')
+                except sr.RequestError:
+                    self.voice_status.set('Voice: Recognition error')
+            except Exception:
+                self.voice_status.set('Voice: Mic error or timeout')
+
+    def set_ironman_filter(self):
+        if self.mode == 'filters' and 'ironman' in temp.filter_types:
+            idx = temp.filter_types.index('ironman')
+            temp.vf_mode = idx
+            self.update_labels()
+            self.update_filter_buttons()
+
     def on_close(self):
+        self.voice_active = False
         self.running = False
         self.cap.release()
         if self.video_writer is not None:

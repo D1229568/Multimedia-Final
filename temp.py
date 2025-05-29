@@ -128,15 +128,21 @@ def overlay_rotated_filter(bg, filter_img, top_left, size, angle):
 
 # Define dst functions for each filter type
 
-def dst_complete_face(face_lms, img):
+def dst_complete_face(face_lms, img, filter_name=None):
     h, w = img.shape[:2]
-    # Gunakan landmark yang lebih presisi untuk full face
     left_eye = face_lms.landmark[33]
     right_eye = face_lms.landmark[263]
     nose = face_lms.landmark[1]
     chin = face_lms.landmark[152]
-    face_width = abs(right_eye.x - left_eye.x) * w * 1.8  # Perluas sedikit
-    face_height = abs(chin.y - nose.y) * h * 2.2  # Perluas untuk mencakup seluruh wajah
+    # Faktor skala berbeda untuk ironman agar lebih besar
+    if filter_name == 'ironman':
+        width_factor = 2.2
+        height_factor = 2.7
+    else:
+        width_factor = 1.8
+        height_factor = 2.2
+    face_width = abs(right_eye.x - left_eye.x) * w * width_factor
+    face_height = abs(chin.y - nose.y) * h * height_factor
     center_x = nose.x * w
     center_y = nose.y * h
     
@@ -354,7 +360,11 @@ def process_videofilters(frame):
             roll = max(min(roll, 45), -45)
             angle_buffer = smoothing*roll + (1-smoothing)*angle_buffer
             ang = -angle_buffer
-            dst = dst_funcs[fname](face, out)
+            # Gunakan dst_complete_face dengan filter_name untuk fullface
+            if fname in ['ironman', 'anonymous', 'monster']:
+                dst = dst_complete_face(face, out, fname)
+            else:
+                dst = dst_funcs[fname](face, out)
             if fname == 'hat':
                 x,y,fw,fh = dst
                 out = overlay_png(out, rotate_image(fimg, ang), x, y, fw, fh)
