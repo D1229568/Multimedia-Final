@@ -194,7 +194,7 @@ def dst_mask(face_lms, img):
 dst_funcs = {
     'anonymous':    dst_complete_face,
     'monster':      dst_complete_face,
-    'oxygen_mask':  dst_mask,
+    'oxygen_mask':  dst_complete_face,
     'covid_mask_1': dst_mask,
     'covid_mask_2': dst_mask,
     'covid_mask_3': dst_mask,
