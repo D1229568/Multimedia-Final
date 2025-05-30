@@ -81,10 +81,10 @@ filter_imgs = {
     'covid_mask_6':  ensure_rgba(cv2.imread('filters/filter13.png', cv2.IMREAD_UNCHANGED)),
     'covid_mask_7':  ensure_rgba(cv2.imread('filters/filter14.png', cv2.IMREAD_UNCHANGED)),
     'ironman':      ensure_rgba(cv2.imread('filters/ironman.png', cv2.IMREAD_UNCHANGED)),
-    'batman':      ensure_rgba(cv2.imread('filters/batman.png', cv2.IMREAD_UNCHANGED)),
-    'dognose':       ensure_rgba(cv2.imread('filters/dognose.png', cv2.IMREAD_UNCHANGED)),
+
+    'dog':       ensure_rgba(cv2.imread('filters/dognose.png', cv2.IMREAD_UNCHANGED)),
     'dogear':       ensure_rgba(cv2.imread('filters/dogear.png', cv2.IMREAD_UNCHANGED)),
-    'clownnose':       ensure_rgba(cv2.imread('filters/clownnose.png', cv2.IMREAD_UNCHANGED)),
+    'clown':       ensure_rgba(cv2.imread('filters/clownnose.png', cv2.IMREAD_UNCHANGED)),
     'clownhat':       ensure_rgba(cv2.imread('filters/clownhat.png', cv2.IMREAD_UNCHANGED)),
 }
 filter_types = list(filter_imgs.keys())
@@ -252,10 +252,10 @@ dst_funcs = {
     'hat':          dst_hat,
     'crown':        dst_hat, 
     'ironman':      dst_complete_face,
-    'batman':       dst_complete_face,
-    'dognose':      dst_dog,
+
+    'dog':      dst_dog,
     'dogear':       dst_hat,
-    'clownnose':    dst_nose,
+    'clown':    dst_nose,
     'clownhat':    dst_hat,
 }
 
@@ -417,7 +417,7 @@ def process_videofilters(frame):
             angle_buffer = smoothing*roll + (1-smoothing)*angle_buffer
             ang = -angle_buffer
             # Gunakan dst_complete_face dengan filter_name untuk fullface
-            if fname in ['ironman', 'anonymous', 'monster', 'oxygen_mask', 'batman']:
+            if fname in ['ironman', 'anonymous', 'monster', 'oxygen_mask']:
                 dst = dst_complete_face(face, out, fname)
             else:
                 dst = dst_funcs[fname](face, out)
@@ -430,19 +430,19 @@ def process_videofilters(frame):
             elif fname == 'ironman':
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)
-            elif fname in ['dognose', 'clownnose']:
+            elif fname in ['dog', 'clown']:
                 rotated = rotate_image(fimg, ang)
                 x, y, fw, fh = dst
                 out = overlay_png(out, rotated, x, y, fw, fh)
                 # If clownnose, also overlay clownhat
-                if fname == 'clownnose':
+                if fname == 'clown':
                     hat_img = filter_imgs.get('clownhat')
                     if hat_img is not None:
                         rotated_hat = rotate_image(hat_img, ang)
                         xh, yh, fwh, fhh = dst_hat(face, out)
                         out = overlay_png(out, rotated_hat, xh, yh, fwh, fhh)
 
-                if fname == 'dognose':
+                if fname == 'dog':
                     ear_img = filter_imgs.get('dogear')
                     if ear_img is not None:
                         rotated_ear = rotate_image(ear_img, ang)

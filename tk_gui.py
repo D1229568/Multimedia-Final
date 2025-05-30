@@ -22,7 +22,7 @@ class FaceFilterApp:
         self.filter_label = tk.StringVar()
         self.mode_label = tk.StringVar()
         self.cap = cv2.VideoCapture(0)
-        self.voice_status = tk.StringVar(value='Voice: Listening for "transform"...')
+        self.voice_status = tk.StringVar(value='')
         self.create_widgets()
         self.update_video()
 
@@ -63,6 +63,12 @@ class FaceFilterApp:
             btn = tk.Button(self.filter_buttons_frame, text='ironman', width=12, command=lambda i=idx: self.select_filter(i))
             btn.grid(row=0, column=idx, padx=2, pady=2)
             self.filter_buttons.append(btn)
+        # Tambahkan tombol khusus clown_nose jika belum ada
+        if 'clown_nose' not in temp.filter_types:
+            idx = len(self.filter_buttons)
+            btn = tk.Button(self.filter_buttons_frame, text='clown_nose', width=12, command=lambda i=idx: self.select_filter(i))
+            btn.grid(row=0, column=idx, padx=2, pady=2)
+            self.filter_buttons.append(btn)
         self.filter_buttons_frame.update_idletasks()
         canvas.create_window((0, 0), window=self.filter_buttons_frame, anchor='nw')
         canvas.configure(xscrollcommand=scrollbar.set, scrollregion=canvas.bbox('all'))
@@ -98,18 +104,17 @@ class FaceFilterApp:
         if self.mode == 'filters':
             fname = temp.filter_types[idx]
             if fname == 'ironman':
-                # Step 1: Tidak ada filter sama sekali
                 temp.vf_mode = -1  # mode khusus: tidak ada filter
                 self.update_labels()
                 self.update_filter_buttons()
-                # Step 2: Tampilkan text "Say transform"
-                self.voice_status.set('Say "transform" to activate Ironman!')
+                self.voice_status.set('Voice: Listening for "transform"')
                 self.await_ironman = True
             else:
                 temp.vf_mode = idx
                 self.update_labels()
                 self.update_filter_buttons()
                 self.await_ironman = False
+                self.voice_status.set('')
 
     def update_filter_buttons(self):
         for idx, btn in enumerate(self.filter_buttons):
@@ -229,13 +234,17 @@ class FaceFilterApp:
                         self.set_ironman_filter()
                         self.await_ironman = False
                     else:
-                        self.voice_status.set(f'Voice: Heard "{text}" (waiting for "transform")')
+                        if hasattr(self, 'await_ironman') and self.await_ironman:
+                            self.voice_status.set(f'Voice: Heard "{text}" (waiting for "transform")')
                 except sr.UnknownValueError:
-                    self.voice_status.set('Voice: Could not understand audio')
+                    if hasattr(self, 'await_ironman') and self.await_ironman:
+                        self.voice_status.set('Voice: Could not understand audio')
                 except sr.RequestError:
-                    self.voice_status.set('Voice: Recognition error')
+                    if hasattr(self, 'await_ironman') and self.await_ironman:
+                        self.voice_status.set('Voice: Recognition error')
             except Exception:
-                self.voice_status.set('Voice: Mic error or timeout')
+                if hasattr(self, 'await_ironman') and self.await_ironman:
+                    self.voice_status.set('Voice: Mic error or timeout')
 
     def set_ironman_filter(self):
         if self.mode == 'filters' and 'ironman' in temp.filter_types:
@@ -243,6 +252,7 @@ class FaceFilterApp:
             temp.vf_mode = idx
             self.update_labels()
             self.update_filter_buttons()
+            self.voice_status.set('')
 
     def on_close(self):
         self.voice_active = False
