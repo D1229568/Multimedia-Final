@@ -12,7 +12,7 @@ import speech_recognition as sr
 class FaceFilterApp:
     def __init__(self, root):
         self.root = root
-        self.root.title('Face Filter App')                                                                                                                      
+        self.root.title('Face Filter App')
         self.root.protocol('WM_DELETE_WINDOW', self.on_close)
         self.mode = 'loopback'
         self.running = True

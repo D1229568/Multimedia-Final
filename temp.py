@@ -538,6 +538,9 @@ def process_videofilters(frame):
             elif fname == 'ironman':
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)
+            elif fname in ['dog', 'clown']:
+                rotated = rotate_image(fimg, ang)
+                x, y, fw, fh = dst
                 out = overlay_png(out, rotated, x, y, fw, fh)
                 # If clownnose, also overlay clownhat
                 if fname == 'clown':
@@ -564,6 +567,11 @@ def process_videofilters(frame):
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)
             
+            if fname != 'mustache' and is_mouth_open(face, w, h, threshold=15):
+                mustache_img = filter_imgs['mustache']
+                dst_mustache = dst_funcs['mustache'](face, out)
+                rotated_mustache = rotate_image(mustache_img, ang)
+                out = apply_homography(rotated_mustache, dst_mustache, out)
     return out
 
 # Background Replacement globals
