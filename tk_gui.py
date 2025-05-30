@@ -51,6 +51,9 @@ class FaceFilterApp:
         self.filter_buttons_frame = tk.Frame(canvas)
         self.filter_buttons = []
         for idx, fname in enumerate(temp.filter_types):
+            # Skip unwanted filters
+            if fname in ('clownhat', 'dogear'):
+                continue
             btn = tk.Button(self.filter_buttons_frame, text=fname, width=12, command=lambda i=idx: self.select_filter(i))
             btn.grid(row=0, column=idx, padx=2, pady=2)
             self.filter_buttons.append(btn)
