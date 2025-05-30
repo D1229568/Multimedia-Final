@@ -74,10 +74,19 @@ class FaceFilterApp:
         # Baris 3: tombol background (jika mode background)
         self.bg_buttons_frame = tk.Frame(self.root)
         self.bg_buttons = []
+        
+        # Add buttons for static backgrounds
         for idx in range(len(temp.bg_images)):
             btn = tk.Button(self.bg_buttons_frame, text=f'BG {idx+1}', width=10, command=lambda i=idx: self.select_bg(i))
             btn.grid(row=0, column=idx, padx=2, pady=2)
             self.bg_buttons.append(btn)
+        
+        # Add button for rocket.gif background
+        rocket_btn = tk.Button(self.bg_buttons_frame, text='Rocket', width=10,
+                             command=lambda: self.select_bg(len(temp.bg_images)))
+        rocket_btn.grid(row=0, column=len(temp.bg_images), padx=2, pady=2)
+        self.bg_buttons.append(rocket_btn)
+        
         self.bg_buttons_frame.pack(pady=(0, 8))
         self.update_bg_buttons()
 
@@ -104,6 +113,14 @@ class FaceFilterApp:
                 self.update_filter_buttons()
                 self.voice_status.set('Voice: Listening for "transform"')
                 self.await_ironman = True
+            elif fname == 'rockets':
+                temp.vf_mode = idx
+                self.update_labels()
+                self.update_filter_buttons()
+                self.voice_status.set('Voice: Listening for "launch"')
+                self.await_rocket = True
+                self.await_ironman = False
+                temp.rocket_triggered = False  # reset rocket trigger when selecting rockets filter
             else:
                 temp.vf_mode = idx
                 self.update_labels()
@@ -118,18 +135,29 @@ class FaceFilterApp:
                 btn.config(state='normal', 
                           relief='sunken' if temp.vf_mode == filter_idx else 'raised', 
                           bg='#d1e7dd' if temp.vf_mode == filter_idx else 'SystemButtonFace')
-            else:
-                btn.config(state='disabled', relief='raised', bg='SystemButtonFace')
+            else:                btn.config(state='disabled', relief='raised', bg='SystemButtonFace')
 
     def select_bg(self, idx):
         if self.mode == 'background':
             temp.bg_mode = idx
+            # If rocket background is selected (index == len(temp.bg_images))
+            if idx == len(temp.bg_images):
+                self.voice_status.set('Voice: Listening for "launch"')
+                self.await_rocket_bg = True
+                temp.rocket_bg_triggered = False  # reset rocket background trigger
+            else:
+                self.await_rocket_bg = False
+                self.voice_status.set('')
             self.update_bg_buttons()
 
     def update_bg_buttons(self):
         for idx, btn in enumerate(self.bg_buttons):
             if self.mode == 'background':
-                btn.config(state='normal', relief='sunken' if temp.bg_mode == idx else 'raised', bg='#d1e7dd' if temp.bg_mode == idx else 'SystemButtonFace')
+                # Handle both static backgrounds and rocket background
+                is_selected = temp.bg_mode == idx
+                btn.config(state='normal', 
+                          relief='sunken' if is_selected else 'raised', 
+                          bg='#d1e7dd' if is_selected else 'SystemButtonFace')
             else:
                 btn.config(state='disabled', relief='raised', bg='SystemButtonFace')
 
@@ -187,11 +215,16 @@ class FaceFilterApp:
         if not ret:
             self.root.after(10, self.update_video)
             return
-        frame = cv2.flip(frame, 1)
-        # Step 1: Jika sedang menunggu ironman, tampilkan frame + text
-        if hasattr(self, 'await_ironman') and self.await_ironman:
+        frame = cv2.flip(frame, 1)        # Step 1: Jika sedang menunggu ironman atau rocket, tampilkan prompt
+        if getattr(self, 'await_ironman', False):
             out = frame.copy()
-            cv2.putText(out, 'Say "transform"', (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 4, cv2.LINE_AA)
+            cv2.putText(out, 'Say "transform"', (50, 80), cv2.FONT_HERSHEY_COMPLEX, 2, (0,0,0), 4, cv2.LINE_AA)
+        elif getattr(self, 'await_rocket', False):
+            out = frame.copy()
+            cv2.putText(out, 'Say "launch"', (50, 80), cv2.FONT_HERSHEY_COMPLEX, 2, (0,0,0), 4, cv2.LINE_AA)
+        elif getattr(self, 'await_rocket_bg', False):
+            out = frame.copy()
+            cv2.putText(out, 'Say "launch"', (50, 80), cv2.FONT_HERSHEY_COMPLEX, 2, (0,0,0), 4, cv2.LINE_AA)
         else:
             if self.mode == 'loopback':
                 out = temp.process_loopback(frame)
@@ -201,6 +234,9 @@ class FaceFilterApp:
                     out = frame.copy()
                 else:
                     out = temp.process_videofilters(frame)
+                    # Add text for firemouth filter
+                    if temp.vf_mode < len(temp.filter_types) and temp.filter_types[temp.vf_mode] == 'firemouth':
+                        cv2.putText(out, 'Open your mouth!', (15, 65), cv2.FONT_HERSHEY_COMPLEX, 1.9, (0,0,255), 4, cv2.LINE_AA)
             elif self.mode == 'smartboard':
                 out = temp.process_smartboard(frame)
             elif self.mode == 'background':
@@ -227,21 +263,36 @@ class FaceFilterApp:
                     audio = recognizer.listen(source, timeout=5, phrase_time_limit=3)
                 try:
                     text = recognizer.recognize_google(audio, language='en-US').lower()
-                    if hasattr(self, 'await_ironman') and self.await_ironman and 'transform' in text:
+                    # Ironman trigger
+                    if getattr(self, 'await_ironman', False) and 'transform' in text:
                         self.voice_status.set('Voice: "transform" detected!')
                         self.set_ironman_filter()
-                        self.await_ironman = False
+                        self.await_ironman = False                    # Rockets trigger
+                    elif getattr(self, 'await_rocket', False) and 'launch' in text:
+                        self.voice_status.set('Voice: "launch" detected!')
+                        temp.rocket_triggered = True  # start rocket animation
+                        self.await_rocket = False
+                    # Rocket background trigger
+                    elif getattr(self, 'await_rocket_bg', False) and 'launch' in text:
+                        self.voice_status.set('Voice: "launch" detected!')
+                        temp.rocket_bg_triggered = True  # start rocket background animation
+                        self.await_rocket_bg = False
                     else:
-                        if hasattr(self, 'await_ironman') and self.await_ironman:
+                        # Feedback while waiting
+                        if getattr(self, 'await_ironman', False):
                             self.voice_status.set(f'Voice: Heard "{text}" (waiting for "transform")')
+                        elif getattr(self, 'await_rocket', False):
+                            self.voice_status.set(f'Voice: Heard "{text}" (waiting for "launch")')                        
+                        elif getattr(self, 'await_rocket_bg', False):
+                            self.voice_status.set(f'Voice: Heard "{text}" (waiting for "launch")')
                 except sr.UnknownValueError:
-                    if hasattr(self, 'await_ironman') and self.await_ironman:
+                    if getattr(self, 'await_ironman', False) or getattr(self, 'await_rocket', False) or getattr(self, 'await_rocket_bg', False):
                         self.voice_status.set('Voice: Could not understand audio')
                 except sr.RequestError:
-                    if hasattr(self, 'await_ironman') and self.await_ironman:
+                    if getattr(self, 'await_ironman', False) or getattr(self, 'await_rocket', False) or getattr(self, 'await_rocket_bg', False):
                         self.voice_status.set('Voice: Recognition error')
             except Exception:
-                if hasattr(self, 'await_ironman') and self.await_ironman:
+                if getattr(self, 'await_ironman', False) or getattr(self, 'await_rocket', False) or getattr(self, 'await_rocket_bg', False):
                     self.voice_status.set('Voice: Mic error or timeout')
 
     def set_ironman_filter(self):

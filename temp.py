@@ -91,6 +91,7 @@ filter_imgs = {
     'shirt': ensure_rgba(cv2.imread('filters/shirt.png', cv2.IMREAD_UNCHANGED)),
     'shirt2': ensure_rgba(cv2.imread('filters/shirt2.png', cv2.IMREAD_UNCHANGED)),
     'firemouth': None,  # Placeholder for animated filter
+    'rockets': None,  # Placeholder for animated filter
 }
 filter_types = list(filter_imgs.keys())
 
@@ -426,9 +427,11 @@ def is_mouth_open(face_lms, w, h, threshold=8):
     return mouth_dist > threshold
 
 def process_videofilters(frame):
+    # Include rocket animation globals
     global angle_buffer, fire_index, explode_index, explode_triggered, mouth_open_start, mouth_was_open
     global fire_frames, fire_frame_count, fire_display_size, explode_frames, explode_frame_count
     global burning_surface_frames, burning_surface_count, burning_surface_index
+    global rocket_frames, rocket_count, rocket_index, rocket_triggered
     
     img = frame 
     h, w = img.shape[:2]
@@ -509,6 +512,19 @@ def process_videofilters(frame):
                 burning_surface_index = 0
 
             return out
+        # Rockets animation overlay
+        if fname == 'rockets':
+             # Show rocket animation when triggered
+            if rocket_triggered and rocket_frames:
+                # Resize rocket frame to cover entire image
+                frame_rocket = rocket_frames[rocket_index]
+                frame_rocket = cv2.resize(frame_rocket, (w, h), interpolation=cv2.INTER_AREA)
+                out = overlay_transparent(out, frame_rocket, 0, 0)
+                rocket_index = (rocket_index + 1) % rocket_count
+                # Stop after one full cycle
+                if rocket_index == 0:
+                    rocket_triggered = False
+            return out
         # If 'none' filter is selected, just return the original frame
         if fname == 'none':
             return out
@@ -570,18 +586,39 @@ def process_videofilters(frame):
 
 # Background Replacement globals
 bg_mode = 0
+rocket_bg_index = 0  # for cycling rocket frames as background
+rocket_bg_triggered = False  # controls when rocket background animation shows
 
 def process_background(frame):
+    global rocket_bg_index, rocket_bg_triggered
     #img = cv2.flip(frame, 1)
     img = frame
     resized = cv2.resize(img, target_size)
+      # Check if user selected rocket.gif background (index 5)
+    if bg_mode == len(bg_images):  # bg_mode == 5 means rocket.gif
+        # Only show rocket animation if triggered by voice command
+        if rocket_bg_triggered and rocket_frames and rocket_count > 0:
+            gif_frame = rocket_frames[rocket_bg_index % rocket_count]
+            rocket_bg_index += 1
+            # Remove alpha channel and resize to target_size
+            bg = cv2.resize(gif_frame[:, :, :3], target_size, interpolation=cv2.INTER_AREA)
+            # Reset index for infinite loop
+            if rocket_bg_index >= rocket_count:
+                rocket_bg_index = 0
+        else:
+            # Show static background when rocket not triggered
+            bg = bg_images[0].copy()
+    else:
+        # Use static backgrounds
+        bg = bg_images[bg_mode].copy()
+    
+    # Perform person segmentation
     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     seg_map = seg_sess.run('SemanticPredictions:0', feed_dict={
         'ImageTensor:0': [rgb]
     })[0]
     seg_map[seg_map!=15] = 0
     mask = (seg_map == 15)
-    bg = bg_images[bg_mode].copy()
     bg[mask] = resized[mask]
     return cv2.resize(bg, (img.shape[1], img.shape[0]))
 
@@ -653,6 +690,12 @@ def init_firemouth_assets():
     burning_surface_frames = load_gif_frames('filters/burning-surface.gif', scale=2.0, remove_black=True, flip_vertically=False)
     burning_surface_count = len(burning_surface_frames)
     burning_surface_index = 0
+    # Initialize rocket animation assets
+    global rocket_frames, rocket_count, rocket_index, rocket_triggered
+    rocket_frames = load_gif_frames('filters/rocket.gif', scale=1.5, remove_black=True, flip_vertically=False)
+    rocket_count = len(rocket_frames)
+    rocket_index = 0
+    rocket_triggered = False
 
 # Initialize firemouth assets on import
 init_firemouth_assets()
