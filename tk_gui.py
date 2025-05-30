@@ -50,14 +50,19 @@ class FaceFilterApp:
         scrollbar = tk.Scrollbar(filter_scroll, orient='horizontal', command=canvas.xview)
         self.filter_buttons_frame = tk.Frame(canvas)
         self.filter_buttons = []
+        self.filter_indices = []  # Maps button index to actual filter index
+        
+        button_col = 0  # Track button column position
         for idx, fname in enumerate(temp.filter_types):
+            # Skip unwanted filters
             if fname in ('clownhat', 'dogear'):
                 continue
-            btn = tk.Button(self.filter_buttons_frame, text=fname, width=12,
-                            command=lambda i=button_index: self.select_filter(i))
-            btn.grid(row=0, column=button_index, padx=2, pady=2)
+            btn = tk.Button(self.filter_buttons_frame, text=fname, width=12, 
+                          command=lambda i=idx: self.select_filter(i))
+            btn.grid(row=0, column=button_col, padx=2, pady=2)
             self.filter_buttons.append(btn)
-            button_index += 1
+            self.filter_indices.append(idx)  # Store the actual filter index
+            button_col += 1
 
         self.filter_buttons_frame.update_idletasks()
         canvas.create_window((0, 0), window=self.filter_buttons_frame, anchor='nw')
@@ -107,9 +112,12 @@ class FaceFilterApp:
                 self.voice_status.set('')
 
     def update_filter_buttons(self):
-        for idx, btn in enumerate(self.filter_buttons):
+        for btn_idx, btn in enumerate(self.filter_buttons):
             if self.mode == 'filters':
-                btn.config(state='normal', relief='sunken' if temp.vf_mode == idx else 'raised', bg='#d1e7dd' if temp.vf_mode == idx else 'SystemButtonFace')
+                filter_idx = self.filter_indices[btn_idx]  # Get actual filter index
+                btn.config(state='normal', 
+                          relief='sunken' if temp.vf_mode == filter_idx else 'raised', 
+                          bg='#d1e7dd' if temp.vf_mode == filter_idx else 'SystemButtonFace')
             else:
                 btn.config(state='disabled', relief='raised', bg='SystemButtonFace')
 

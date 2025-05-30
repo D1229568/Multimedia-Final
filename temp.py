@@ -418,7 +418,7 @@ def compute_eye_center_and_angle(landmarks, w, h):
     angle = np.degrees(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
     return tuple(center.astype(int)), angle
 
-def is_mouth_open(face_lms, w, h, threshold=10):
+def is_mouth_open(face_lms, w, h, threshold=8):
     # Gunakan landmark bibir atas (13) dan bawah (14)
     upper_lip = np.array([face_lms.landmark[13].x * w, face_lms.landmark[13].y * h])
     lower_lip = np.array([face_lms.landmark[14].x * w, face_lms.landmark[14].y * h])
@@ -566,11 +566,6 @@ def process_videofilters(frame):
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)
             
-            if fname != 'mustache' and is_mouth_open(face, w, h, threshold=15):
-                mustache_img = filter_imgs['mustache']
-                dst_mustache = dst_funcs['mustache'](face, out)
-                rotated_mustache = rotate_image(mustache_img, ang)
-                out = apply_homography(rotated_mustache, dst_mustache, out)
     return out
 
 # Background Replacement globals
