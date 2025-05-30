@@ -84,7 +84,6 @@ filter_imgs = {
     'covid_mask_6':  ensure_rgba(cv2.imread('filters/filter13.png', cv2.IMREAD_UNCHANGED)),
     'covid_mask_7':  ensure_rgba(cv2.imread('filters/filter14.png', cv2.IMREAD_UNCHANGED)),
     'ironman':      ensure_rgba(cv2.imread('filters/ironman.png', cv2.IMREAD_UNCHANGED)),
-
     'dog':       ensure_rgba(cv2.imread('filters/dognose.png', cv2.IMREAD_UNCHANGED)),
     'dogear':       ensure_rgba(cv2.imread('filters/dogear.png', cv2.IMREAD_UNCHANGED)),
     'clown':       ensure_rgba(cv2.imread('filters/clownnose.png', cv2.IMREAD_UNCHANGED)),
@@ -258,7 +257,7 @@ def dst_shirt(face_lms, img):
             [lh.x * w, lh.y * h],
         ], dtype=np.float32)
         # Scale shirt overlay area to make it larger
-        scale = 2
+        scale = 2.1
         center = points.mean(axis=0)
         points = (points - center) * scale + center
         return points
@@ -285,7 +284,6 @@ dst_funcs = {
     'hat':          dst_hat,
     'crown':        dst_hat, 
     'ironman':      dst_complete_face,
-
     'dog':      dst_dog,
     'dogear':       dst_hat,
     'clown':    dst_nose,
@@ -420,7 +418,7 @@ def compute_eye_center_and_angle(landmarks, w, h):
     angle = np.degrees(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
     return tuple(center.astype(int)), angle
 
-def is_mouth_open(face_lms, w, h, threshold=15):
+def is_mouth_open(face_lms, w, h, threshold=10):
     # Gunakan landmark bibir atas (13) dan bawah (14)
     upper_lip = np.array([face_lms.landmark[13].x * w, face_lms.landmark[13].y * h])
     lower_lip = np.array([face_lms.landmark[14].x * w, face_lms.landmark[14].y * h])
@@ -444,13 +442,14 @@ def process_videofilters(frame):
         if fname == 'firemouth':
             # Only use first face for firemouth
             face = res.multi_face_landmarks[0]
-            mouth_is_open = is_mouth_open(face, w, h, threshold=20)
+            mouth_is_open = is_mouth_open(face, w, h, threshold=15)
             gif_x, gif_y = w//2 - fire_display_size[0]//2, h//2 - fire_display_size[1]//2
             if 0 <= 14 < len(face.landmark):
                 lower_lip_x = int(face.landmark[14].x * w)
                 lower_lip_y = int(face.landmark[14].y * h)
                 gif_x = lower_lip_x - fire_display_size[0] // 2
-                gif_y = lower_lip_y - fire_display_size[1] // 4
+                gif_y = lower_lip_y - (fire_display_size[1]- 83) // 4
+                #gif_y = lower_lip_y + 1
 
             current_time = time.time()
             surface_should_display = False
@@ -560,8 +559,8 @@ def process_videofilters(frame):
             elif fname in ['shirt', 'shirt2']:
                 # Pre-resize the shirt image to the fixed dimensions before rotation
                 # This ensures consistent display regardless of user body size
-                fixed_shirt = cv2.resize(fimg, (1000, 946), interpolation=cv2.INTER_AREA)
-                rotated = rotate_image(fixed_shirt, ang)
+                fixed_shirt = cv2.resize(fimg, (500, 1500), interpolation=cv2.INTER_AREA)
+                rotated = rotate_image(fixed_shirt, -ang)
                 out = apply_homography(rotated, dst, out)
             else:
                 rotated = rotate_image(fimg, ang)
@@ -645,7 +644,7 @@ def init_firemouth_assets():
     global explode_frames, explode_frame_count, fire_index, explode_index
     global explode_triggered, explode_start_time, mouth_open_start, mouth_was_open
     global burning_surface_frames, burning_surface_count, burning_surface_index    
-    fire_frames = load_gif_frames('filters/fire.gif', scale=1.5, remove_black=True, flip_vertically=False)
+    fire_frames = load_gif_frames('filters/fire.gif', scale=1.5, remove_black=True, flip_vertically=True)
     fire_frame_count = len(fire_frames)
     fire_index = 0
     fire_display_size = (250, 250)
