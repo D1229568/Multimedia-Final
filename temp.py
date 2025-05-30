@@ -86,6 +86,8 @@ filter_imgs = {
     'dogear':       ensure_rgba(cv2.imread('filters/dogear.png', cv2.IMREAD_UNCHANGED)),
     'clown':       ensure_rgba(cv2.imread('filters/clownnose.png', cv2.IMREAD_UNCHANGED)),
     'clownhat':       ensure_rgba(cv2.imread('filters/clownhat.png', cv2.IMREAD_UNCHANGED)),
+    'shirt': ensure_rgba(cv2.imread('filters/shirt.png', cv2.IMREAD_UNCHANGED)),
+    'shirt2': ensure_rgba(cv2.imread('filters/shirt2.png', cv2.IMREAD_UNCHANGED)),
 }
 filter_types = list(filter_imgs.keys())
 
@@ -234,6 +236,33 @@ def dst_nose(face_lms, img):
     y = int(nose_tip.y * h - overlay_height / 2 - offset)
     return (x, y, int(overlay_width), int(overlay_height))
 
+def dst_shirt(face_lms, img):
+    h, w = img.shape[:2]
+    # Dapatkan hasil pose detection
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    pose_result = mp_pose.process(img_rgb)
+    if pose_result.pose_landmarks:
+        pose_lms = pose_result.pose_landmarks
+        ls = pose_lms.landmark[mp.solutions.pose.PoseLandmark.LEFT_SHOULDER]
+        rs = pose_lms.landmark[mp.solutions.pose.PoseLandmark.RIGHT_SHOULDER]
+        lh = pose_lms.landmark[mp.solutions.pose.PoseLandmark.LEFT_HIP]
+        rh = pose_lms.landmark[mp.solutions.pose.PoseLandmark.RIGHT_HIP]
+        points = np.array([
+            [ls.x * w, ls.y * h],
+            [rs.x * w, rs.y * h],
+            [rh.x * w, rh.y * h],
+            [lh.x * w, lh.y * h],
+        ], dtype=np.float32)
+        # Scale shirt overlay area to make it larger
+        scale = 2
+        center = points.mean(axis=0)
+        points = (points - center) * scale + center
+        return points
+    # Jika pose tidak terdeteksi, jangan tampilkan apa-apa
+    return None
+
+
+
 # Map filter names to dst functions
 
 dst_funcs = {
@@ -257,6 +286,8 @@ dst_funcs = {
     'dogear':       dst_hat,
     'clown':    dst_nose,
     'clownhat':    dst_hat,
+    'shirt': dst_shirt,
+    'shirt2': dst_shirt,
 }
 
 # ----- Process functions -----
@@ -448,6 +479,13 @@ def process_videofilters(frame):
                         rotated_ear = rotate_image(ear_img, ang)
                         xh, yh, fwh, fhh = dst_hat(face, out)
                         out = overlay_png(out, rotated_ear, xh, yh, fwh, fhh)
+            # Add special case for shirt overlays
+            elif fname in ['shirt', 'shirt2']:
+                # Pre-resize the shirt image to the fixed dimensions before rotation
+                # This ensures consistent display regardless of user body size
+                fixed_shirt = cv2.resize(fimg, (1000, 946), interpolation=cv2.INTER_AREA)
+                rotated = rotate_image(fixed_shirt, ang)
+                out = apply_homography(rotated, dst, out)
             else:
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)

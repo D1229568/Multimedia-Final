@@ -57,18 +57,7 @@ class FaceFilterApp:
             btn = tk.Button(self.filter_buttons_frame, text=fname, width=12, command=lambda i=idx: self.select_filter(i))
             btn.grid(row=0, column=idx, padx=2, pady=2)
             self.filter_buttons.append(btn)
-        # Tambahkan tombol khusus ironman jika belum ada
-        if 'ironman' not in temp.filter_types:
-            idx = len(self.filter_buttons)
-            btn = tk.Button(self.filter_buttons_frame, text='ironman', width=12, command=lambda i=idx: self.select_filter(i))
-            btn.grid(row=0, column=idx, padx=2, pady=2)
-            self.filter_buttons.append(btn)
-        # Tambahkan tombol khusus clown_nose jika belum ada
-        if 'clown_nose' not in temp.filter_types:
-            idx = len(self.filter_buttons)
-            btn = tk.Button(self.filter_buttons_frame, text='clown_nose', width=12, command=lambda i=idx: self.select_filter(i))
-            btn.grid(row=0, column=idx, padx=2, pady=2)
-            self.filter_buttons.append(btn)
+
         self.filter_buttons_frame.update_idletasks()
         canvas.create_window((0, 0), window=self.filter_buttons_frame, anchor='nw')
         canvas.configure(xscrollcommand=scrollbar.set, scrollregion=canvas.bbox('all'))
