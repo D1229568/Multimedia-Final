@@ -76,22 +76,15 @@ filter_imgs = {
     'crown':         ensure_rgba(cv2.imread('filters/crown.png', cv2.IMREAD_UNCHANGED)),
     'monster':       ensure_rgba(cv2.imread('filters/filter5.png', cv2.IMREAD_UNCHANGED)),
     'oxygen_mask':   ensure_rgba(cv2.imread('filters/filter6.png', cv2.IMREAD_UNCHANGED)),
-    'covid_mask_1':  ensure_rgba(cv2.imread('filters/filter8.png', cv2.IMREAD_UNCHANGED)),
-    'covid_mask_2':  ensure_rgba(cv2.imread('filters/filter9.png', cv2.IMREAD_UNCHANGED)),
-    'covid_mask_3':  ensure_rgba(cv2.imread('filters/filter10.png', cv2.IMREAD_UNCHANGED)),
-    'covid_mask_4':  ensure_rgba(cv2.imread('filters/filter11.png', cv2.IMREAD_UNCHANGED)),
-    'covid_mask_5':  ensure_rgba(cv2.imread('filters/filter12.png', cv2.IMREAD_UNCHANGED)),
-    'covid_mask_6':  ensure_rgba(cv2.imread('filters/filter13.png', cv2.IMREAD_UNCHANGED)),
-    'covid_mask_7':  ensure_rgba(cv2.imread('filters/filter14.png', cv2.IMREAD_UNCHANGED)),
+    'mask 1':  ensure_rgba(cv2.imread('filters/filter8.png', cv2.IMREAD_UNCHANGED)),
+    'mask 2':  ensure_rgba(cv2.imread('filters/filter12.png', cv2.IMREAD_UNCHANGED)),
     'ironman':      ensure_rgba(cv2.imread('filters/ironman.png', cv2.IMREAD_UNCHANGED)),
     'dog':       ensure_rgba(cv2.imread('filters/dognose.png', cv2.IMREAD_UNCHANGED)),
     'dogear':       ensure_rgba(cv2.imread('filters/dogear.png', cv2.IMREAD_UNCHANGED)),
     'clown':       ensure_rgba(cv2.imread('filters/clownnose.png', cv2.IMREAD_UNCHANGED)),
-    'clownhat':       ensure_rgba(cv2.imread('filters/clownhat.png', cv2.IMREAD_UNCHANGED)),
-    'shirt': ensure_rgba(cv2.imread('filters/shirt.png', cv2.IMREAD_UNCHANGED)),
-    'shirt2': ensure_rgba(cv2.imread('filters/shirt2.png', cv2.IMREAD_UNCHANGED)),
+    'clownhat':       ensure_rgba(cv2.imread('filters/clownhat.png', cv2.IMREAD_UNCHANGED)),    'shirt': ensure_rgba(cv2.imread('filters/shirt.png', cv2.IMREAD_UNCHANGED)),
+    'shirt2': ensure_rgba(cv2.imread('filters/shirt2.png', cv2.IMREAD_UNCHANGED)),    'heart': ensure_rgba(cv2.imread('filters/heart.png', cv2.IMREAD_UNCHANGED)),
     'firemouth': None,  # Placeholder for animated filter
-    'rockets': None,  # Placeholder for animated filter
 }
 filter_types = list(filter_imgs.keys())
 
@@ -228,7 +221,7 @@ def dst_nose(face_lms, img):
     right_eye = face_lms.landmark[263]
     face_width = abs(right_eye.x - left_eye.x) * w
     # Base overlay size (70% of face width)
-    base_size = face_width * 0.5
+    base_size = face_width * 0.75
     # Make nose wider: increase width by 20% relative to height
     overlay_width = base_size
     overlay_height = base_size # Keep height the same
@@ -265,6 +258,52 @@ def dst_shirt(face_lms, img):
     # Jika pose tidak terdeteksi, jangan tampilkan apa-apa
     return None
 
+def dst_heart(face_lms, img):
+    h, w = img.shape[:2]
+    # Position heart near the cheek area
+    left_cheek = face_lms.landmark[116]  # Left cheek landmark
+    right_cheek = face_lms.landmark[345]  # Right cheek landmark
+    
+    # Calculate heart size based on face width
+    face_width = abs(right_cheek.x - left_cheek.x) * w
+    heart_size = int(face_width * 0.3)  # Heart is 30% of face width
+    
+    # Position on right cheek (from user's perspective, left side of screen)
+    x = int(right_cheek.x * w - heart_size // 2)
+    y = int(right_cheek.y * h - heart_size // 2)
+    
+    return (x, y, heart_size, heart_size)
+
+def is_smiling(face_lms, w, h, threshold=0.01):
+    """
+    Detect if the person is smiling based on mouth landmarks.
+    Uses the mouth corner landmarks to detect upward curvature.
+    """
+    # Get mouth corner landmarks
+    left_mouth_corner = face_lms.landmark[61]   # Left corner of mouth
+    right_mouth_corner = face_lms.landmark[291] # Right corner of mouth
+    upper_lip_center = face_lms.landmark[13]    # Upper lip center
+    lower_lip_center = face_lms.landmark[14]    # Lower lip center
+    
+    # Calculate mouth width and height
+    mouth_width = abs(right_mouth_corner.x - left_mouth_corner.x) * w
+    mouth_height = abs(lower_lip_center.y - upper_lip_center.y) * h
+    
+    # Calculate the y-position of mouth corners relative to mouth center
+    mouth_center_y = (upper_lip_center.y + lower_lip_center.y) / 2
+    left_corner_relative = (left_mouth_corner.y - mouth_center_y) * h
+    right_corner_relative = (right_mouth_corner.y - mouth_center_y) * h
+    
+    # A smile is detected when both mouth corners are above the mouth center
+    # and the mouth width is relatively wide compared to height
+    corner_lift = -(left_corner_relative + right_corner_relative) / 2  # Negative because y increases downward
+    width_height_ratio = mouth_width / max(mouth_height, 1)
+    
+    # Smile detection: corners lifted up and good width-to-height ratio
+    is_smiling = corner_lift > threshold * h and width_height_ratio > 2.5
+    
+    return is_smiling
+
 
 
 # Map filter names to dst functions
@@ -273,11 +312,11 @@ dst_funcs = {
     'anonymous':    dst_complete_face,
     'monster':      dst_complete_face,
     'oxygen_mask':  dst_complete_face,
-    'covid_mask_1': dst_mask,
+    'mask 1': dst_mask,
     'covid_mask_2': dst_mask,
     'covid_mask_3': dst_mask,
     'covid_mask_4': dst_mask,
-    'covid_mask_5': dst_mask,
+    'mask 2': dst_mask,
     'covid_mask_6': dst_mask,
     'covid_mask_7': dst_mask,
     'glasses':      dst_glasses,
@@ -285,12 +324,13 @@ dst_funcs = {
     'hat':          dst_hat,
     'crown':        dst_hat, 
     'ironman':      dst_complete_face,
-    'dog':      dst_dog,
+    'dog':          dst_dog,
     'dogear':       dst_hat,
-    'clown':    dst_nose,
-    'clownhat':    dst_hat,
-    'shirt': dst_shirt,
-    'shirt2': dst_shirt,
+    'clown':        dst_nose,
+    'clownhat':     dst_hat,
+    'shirt':        dst_shirt,
+    'shirt2':       dst_shirt,
+    'is_smiling':        dst_hat,
 }
 
 # ----- Process functions -----
@@ -507,23 +547,32 @@ def process_videofilters(frame):
                 burning_x = (w - burning_w) // 2
                 burning_y = h - burning_h
                 out = overlay_transparent(out, burning_frame, burning_x, burning_y)
-                burning_surface_index = (burning_surface_index + 1) % burning_surface_count             
+                burning_surface_index = (burning_surface_index + 1) % burning_surface_count
             else:
                 burning_surface_index = 0
-
             return out
-        # Rockets animation overlay
-        if fname == 'rockets':
-             # Show rocket animation when triggered
-            if rocket_triggered and rocket_frames:
-                # Resize rocket frame to cover entire image
-                frame_rocket = rocket_frames[rocket_index]
-                frame_rocket = cv2.resize(frame_rocket, (w, h), interpolation=cv2.INTER_AREA)
-                out = overlay_transparent(out, frame_rocket, 0, 0)
-                rocket_index = (rocket_index + 1) % rocket_count
-                # Stop after one full cycle
-                if rocket_index == 0:
-                    rocket_triggered = False
+        # Heart filter with smile detection
+        if fname == 'heart':
+            # Only show heart when user is smiling
+            for face in res.multi_face_landmarks:
+                if is_smiling(face, w, h, threshold=0.005):
+                    fimg = filter_imgs['heart']
+                    if fimg is not None:
+                        # Get heart position and size using hat positioning
+                        x, y, fw, fh = dst_hat(face, out)
+                        # Apply rotation based on face angle
+                        l = np.array([face.landmark[33].x * w, face.landmark[33].y * h])
+                        r = np.array([face.landmark[263].x * w, face.landmark[263].y * h])
+                        roll = calculate_face_angle(l, r)
+                        roll = max(min(roll, 45), -45)
+                        angle_buffer = smoothing * roll + (1 - smoothing) * angle_buffer
+                        ang = -angle_buffer
+                        rotated_heart = rotate_image(fimg, ang)
+                        out = overlay_png(out, rotated_heart, x, y, fw, fh)
+                else:
+                    # Show text prompt when not smiling
+                    cv2.putText(out, 'Smile to see hearts!', (50, 50), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
             return out
         # If 'none' filter is selected, just return the original frame
         if fname == 'none':

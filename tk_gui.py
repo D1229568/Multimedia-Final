@@ -108,24 +108,29 @@ class FaceFilterApp:
         if self.mode == 'filters':
             fname = temp.filter_types[idx]
             if fname == 'ironman':
-                temp.vf_mode = -1  # mode khusus: tidak ada filter
+                temp.vf_mode = -1
                 self.update_labels()
                 self.update_filter_buttons()
                 self.voice_status.set('Voice: Listening for "transform"')
                 self.await_ironman = True
+                self.await_rocket   = False
+                self.await_rocket_bg = False
             elif fname == 'rockets':
                 temp.vf_mode = idx
                 self.update_labels()
                 self.update_filter_buttons()
                 self.voice_status.set('Voice: Listening for "launch"')
-                self.await_rocket = True
-                self.await_ironman = False
-                temp.rocket_triggered = False  # reset rocket trigger when selecting rockets filter
+                self.await_rocket   = True
+                self.await_ironman  = False
+                self.await_rocket_bg = False
+                temp.rocket_triggered = False
             else:
                 temp.vf_mode = idx
                 self.update_labels()
                 self.update_filter_buttons()
-                self.await_ironman = False
+                self.await_ironman   = False
+                self.await_rocket    = False
+                self.await_rocket_bg = False
                 self.voice_status.set('')
 
     def update_filter_buttons(self):
@@ -215,34 +220,24 @@ class FaceFilterApp:
         if not ret:
             self.root.after(10, self.update_video)
             return
-        frame = cv2.flip(frame, 1)        # Step 1: Jika sedang menunggu ironman atau rocket, tampilkan prompt
+        frame = cv2.flip(frame, 1)
+        # handle voice prompts
         if getattr(self, 'await_ironman', False):
             out = frame.copy()
             cv2.putText(out, 'Say "transform"', (50, 80), cv2.FONT_HERSHEY_COMPLEX, 2, (0,0,0), 4, cv2.LINE_AA)
-        elif getattr(self, 'await_rocket', False):
-            out = frame.copy()
-            cv2.putText(out, 'Say "launch"', (50, 80), cv2.FONT_HERSHEY_COMPLEX, 2, (0,0,0), 4, cv2.LINE_AA)
-        elif getattr(self, 'await_rocket_bg', False):
+        elif getattr(self, 'await_rocket', False) or getattr(self, 'await_rocket_bg', False):
             out = frame.copy()
             cv2.putText(out, 'Say "launch"', (50, 80), cv2.FONT_HERSHEY_COMPLEX, 2, (0,0,0), 4, cv2.LINE_AA)
         else:
-            if self.mode == 'loopback':
-                out = temp.process_loopback(frame)
-            elif self.mode == 'filters':
-                # Jika temp.vf_mode == -1, tidak tampilkan filter apapun
-                if getattr(temp, 'vf_mode', 0) == -1:
-                    out = frame.copy()
-                else:
-                    out = temp.process_videofilters(frame)
-                    # Add text for firemouth filter
-                    if temp.vf_mode < len(temp.filter_types) and temp.filter_types[temp.vf_mode] == 'firemouth':
-                        cv2.putText(out, 'Open your mouth!', (15, 65), cv2.FONT_HERSHEY_COMPLEX, 1.9, (0,0,255), 4, cv2.LINE_AA)
-            elif self.mode == 'smartboard':
-                out = temp.process_smartboard(frame)
-            elif self.mode == 'background':
-                out = temp.process_background(frame)
-            else:
-                out = frame
+            # Combined background + filter processing
+            # First apply background replacement
+            out = temp.process_background(frame)
+            # Then apply face filter if selected and not 'none'
+            if getattr(temp, 'vf_mode', 0) >= 0 and temp.filter_types[temp.vf_mode] != 'none':
+                out = temp.process_videofilters(out)
+                # Add prompt for firemouth filter if active
+                if temp.filter_types[temp.vf_mode] == 'firemouth':
+                    cv2.putText(out, 'Open your mouth!', (15, 65), cv2.FONT_HERSHEY_COMPLEX, 1.9, (0,0,255), 4, cv2.LINE_AA)
         out_rgb = cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
         self.frame = out_rgb.copy()
         img = Image.fromarray(out_rgb)
@@ -260,7 +255,7 @@ class FaceFilterApp:
             try:
                 with mic as source:
                     recognizer.adjust_for_ambient_noise(source)
-                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=3)
+                    audio = recognizer.listen(source, timeout=20, phrase_time_limit=3)
                 try:
                     text = recognizer.recognize_google(audio, language='en-US').lower()
                     # Ironman trigger
