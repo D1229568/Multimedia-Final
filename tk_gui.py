@@ -73,21 +73,30 @@ class FaceFilterApp:
 
         # Baris 3: tombol background (jika mode background)
         self.bg_buttons_frame = tk.Frame(self.root)
-        self.bg_buttons = []
-        
-        # Add buttons for static backgrounds
-        for idx in range(len(temp.bg_images)):
-            btn = tk.Button(self.bg_buttons_frame, text=f'BG {idx+1}', width=10, command=lambda i=idx: self.select_bg(i))
-            btn.grid(row=0, column=idx, padx=2, pady=2)
-            self.bg_buttons.append(btn)
-        
-        # Add button for rocket.gif background
-        rocket_btn = tk.Button(self.bg_buttons_frame, text='Rocket', width=10,
-                             command=lambda: self.select_bg(len(temp.bg_images)))
-        rocket_btn.grid(row=0, column=len(temp.bg_images), padx=2, pady=2)
-        self.bg_buttons.append(rocket_btn)
-        
         self.bg_buttons_frame.pack(pady=(0, 8))
+        self.bg_buttons = []
+        self.bg_indices = []  # Maps button order to actual bg_mode value
+        # None background button (transparent)
+        none_idx = -1
+        none_btn = tk.Button(self.bg_buttons_frame, text='None', width=10,
+                              command=lambda i=none_idx: self.select_bg(i))
+        none_btn.grid(row=0, column=0, padx=2, pady=2)
+        self.bg_buttons.append(none_btn)
+        self.bg_indices.append(none_idx)
+        # Static backgrounds buttons
+        for idx in range(len(temp.bg_images)):
+            btn = tk.Button(self.bg_buttons_frame, text=f'BG {idx+1}', width=10,
+                            command=lambda i=idx: self.select_bg(i))
+            btn.grid(row=0, column=idx+1, padx=2, pady=2)
+            self.bg_buttons.append(btn)
+            self.bg_indices.append(idx)
+        # Rocket background button
+        rocket_idx = len(temp.bg_images) + 1
+        rocket_btn = tk.Button(self.bg_buttons_frame, text='Rocket', width=10,
+                               command=lambda i=rocket_idx-1: self.select_bg(i))
+        rocket_btn.grid(row=0, column=rocket_idx, padx=2, pady=2)
+        self.bg_buttons.append(rocket_btn)
+        self.bg_indices.append(rocket_idx-1)
         self.update_bg_buttons()
 
         # Baris 4: tombol Screenshot dan Record
@@ -144,24 +153,28 @@ class FaceFilterApp:
 
     def select_bg(self, idx):
         if self.mode == 'background':
-            temp.bg_mode = idx
-            # If rocket background is selected (index == len(temp.bg_images))
-            if idx == len(temp.bg_images):
-                self.voice_status.set('Voice: Listening for "launch"')
-                self.await_rocket_bg = True
-                temp.rocket_bg_triggered = False  # reset rocket background trigger
-            else:
-                self.await_rocket_bg = False
+            # None resets to transparent background
+            if idx == -1:
+                temp.bg_mode = -1
                 self.voice_status.set('')
+            else:
+                temp.bg_mode = idx
+                if idx == len(temp.bg_images):
+                    self.voice_status.set('Voice: Listening for "launch"')
+                    self.await_rocket_bg = True
+                    temp.rocket_bg_triggered = False
+                else:
+                    self.await_rocket_bg = False
+                    self.voice_status.set('')
             self.update_bg_buttons()
 
     def update_bg_buttons(self):
-        for idx, btn in enumerate(self.bg_buttons):
+        for btn_idx, btn in enumerate(self.bg_buttons):
+            actual_idx = self.bg_indices[btn_idx]
             if self.mode == 'background':
-                # Handle both static backgrounds and rocket background
-                is_selected = temp.bg_mode == idx
-                btn.config(state='normal', 
-                          relief='sunken' if is_selected else 'raised', 
+                is_selected = temp.bg_mode == actual_idx
+                btn.config(state='normal',
+                          relief='sunken' if is_selected else 'raised',
                           bg='#d1e7dd' if is_selected else 'SystemButtonFace')
             else:
                 btn.config(state='disabled', relief='raised', bg='SystemButtonFace')

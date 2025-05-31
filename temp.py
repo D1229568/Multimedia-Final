@@ -85,6 +85,7 @@ filter_imgs = {
     'clownhat':       ensure_rgba(cv2.imread('filters/clownhat.png', cv2.IMREAD_UNCHANGED)),    'shirt': ensure_rgba(cv2.imread('filters/shirt.png', cv2.IMREAD_UNCHANGED)),
     'shirt2': ensure_rgba(cv2.imread('filters/shirt2.png', cv2.IMREAD_UNCHANGED)),    'heart': ensure_rgba(cv2.imread('filters/heart.png', cv2.IMREAD_UNCHANGED)),
     'firemouth': None,  # Placeholder for animated filter
+    'random': None,     # Randomizer filter
 }
 filter_types = list(filter_imgs.keys())
 
@@ -392,6 +393,10 @@ def process_smartboard(frame):
 
 # Video Filters globals
 vf_mode = 0  # index in filter_types
+random_start_time = None  # Start time for random filter rolling
+random_locked = False     # Whether final random filter is locked in
+random_duration = 3.0     # Duration (seconds) to roll before selecting
+random_choice = None      # The final selected random filter name
 
 def calculate_face_angle(left_eye, right_eye):
     # Calculate the angle in degrees between the eyes
@@ -467,19 +472,38 @@ def is_mouth_open(face_lms, w, h, threshold=8):
     return mouth_dist > threshold
 
 def process_videofilters(frame):
-    # Include rocket animation globals
+    # Global variables for animations and random filter
     global angle_buffer, fire_index, explode_index, explode_triggered, mouth_open_start, mouth_was_open
     global fire_frames, fire_frame_count, fire_display_size, explode_frames, explode_frame_count
     global burning_surface_frames, burning_surface_count, burning_surface_index
     global rocket_frames, rocket_count, rocket_index, rocket_triggered
-    
-    img = frame 
+    global random_start_time, random_locked, random_choice
+    img = frame
     h, w = img.shape[:2]
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     res = mp_face_mesh.process(rgb)
     out = img.copy()
     if res.multi_face_landmarks:
         fname = filter_types[vf_mode]
+        # Timed random filter: roll choices for a duration, then lock in one
+        if fname == 'random':
+            now = time.time()
+            if random_start_time is None:
+                random_start_time = now
+                random_locked = False
+            # pick a choice while rolling or locked final
+            if not random_locked:
+                candidates = [f for f in filter_types if f not in ('none','random')]
+                random_choice = candidates[randint(0, len(candidates)-1)]
+                # lock after duration
+                if now - random_start_time >= random_duration:
+                    random_locked = True
+            fname = random_choice
+        else:
+            # reset random timing when switching filters
+            random_start_time = None
+            random_locked = False
+            random_choice = None
         if fname == 'none':
             return out
         if fname == 'firemouth':
@@ -622,24 +646,35 @@ def process_videofilters(frame):
                         out = overlay_png(out, rotated_ear, xh, yh, fwh, fhh)
             # Add special case for shirt overlays
             elif fname in ['shirt', 'shirt2']:
-                # Pre-resize the shirt image to the fixed dimensions before rotation
-                # This ensures consistent display regardless of user body size
+                # Pre-resize the shirt image to fixed dimensions before rotation
                 fixed_shirt = cv2.resize(fimg, (500, 1500), interpolation=cv2.INTER_AREA)
                 rotated = rotate_image(fixed_shirt, -ang)
-                out = apply_homography(rotated, dst, out)
+                # Only apply if homography destination points are valid
+                if isinstance(dst, np.ndarray) and dst.shape == (4, 2):
+                    out = apply_homography(rotated, dst, out)
             else:
                 rotated = rotate_image(fimg, ang)
-                out = apply_homography(rotated, dst, out)
+                # only run homography if dst is exactly a 4×2 np.ndarray
+                if isinstance(dst, np.ndarray) and dst.shape == (4,2):
+                    out = apply_homography(rotated, dst, out)
+                elif isinstance(dst, tuple) and len(dst)==4:
+                    x,y,w,h = dst
+                    out = overlay_png(out, rotated, x, y, w, h)
+                else:
+                    print(f"[DEBUG] skipping homography, dst invalid: {dst!r}")
             
     return out
 
 # Background Replacement globals
-bg_mode = 0
+bg_mode = -1  # default: no background selected
 rocket_bg_index = 0  # for cycling rocket frames as background
 rocket_bg_triggered = False  # controls when rocket background animation shows
 
 def process_background(frame):
     global rocket_bg_index, rocket_bg_triggered
+    # No background selected: passthrough
+    if bg_mode == -1:
+        return frame
     #img = cv2.flip(frame, 1)
     img = frame
     resized = cv2.resize(img, target_size)
