@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import simpledialog
 from tkinter import ttk
 from tkinter import messagebox
 from PIL import Image, ImageTk
@@ -104,6 +105,7 @@ class FaceFilterApp:
         action_frame.pack(pady=(0, 8))
         tk.Button(action_frame, text='Screenshot', width=16, command=self.screenshot).pack(side='left', padx=8)
         tk.Button(action_frame, text='Record', width=16, command=self.toggle_record).pack(side='left', padx=8)
+        tk.Button(action_frame, text='Use Your Phone', width=16, command=self.switch_to_phone_camera).pack(side='left', padx=8)
 
         # Status
         status_frame = tk.Frame(self.root)
@@ -112,6 +114,20 @@ class FaceFilterApp:
         tk.Label(status_frame, textvariable=self.filter_label, font=('Arial', 10)).pack(side='left', padx=8)
         tk.Label(status_frame, textvariable=self.voice_status, font=('Arial', 10, 'italic'), fg='blue').pack(side='left', padx=8)
         self.update_labels()
+
+    def switch_to_phone_camera(self):
+        ip = tk.simpledialog.askstring("Phone Camera", "Enter your phone's IP (e.g., 192.168.137.148):")
+        if ip:
+            # Release the current capture first
+            if self.cap is not None:
+                self.cap.release()
+            url = f"http://{ip}:4747/video"
+            self.cap = cv2.VideoCapture(url)
+            if not self.cap.isOpened():
+                messagebox.showerror("Connection Failed", f"Could not connect to {url}")
+            else:
+                messagebox.showinfo("Success", f"Now using phone camera: {url}")
+
 
     def select_filter(self, idx):
         if self.mode == 'filters':
