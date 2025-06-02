@@ -493,7 +493,7 @@ def process_videofilters(frame):
                 random_locked = False
             # pick a choice while rolling or locked final
             if not random_locked:
-                candidates = [f for f in filter_types if f not in ('none','random')]
+                candidates = [f for f in filter_types if f not in ('none','random','dogear','clownhat')]
                 random_choice = candidates[randint(0, len(candidates)-1)]
                 # lock after duration
                 if now - random_start_time >= random_duration:

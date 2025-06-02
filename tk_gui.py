@@ -288,9 +288,10 @@ class FaceFilterApp:
             # Then apply face filter if selected and not 'none'
             if getattr(temp, 'vf_mode', 0) >= 0 and temp.filter_types[temp.vf_mode] != 'none':
                 out = temp.process_videofilters(out)
-                # Add prompt for firemouth filter if active
-                if temp.filter_types[temp.vf_mode] == 'firemouth':
-                    cv2.putText(out, 'Open your mouth!', (15, 65), cv2.FONT_HERSHEY_COMPLEX, 1.9, (0,0,255), 4, cv2.LINE_AA)
+                # Prompt for firemouth, including when random filter picks firemouth
+                if temp.filter_types[temp.vf_mode] == 'firemouth' or (temp.filter_types[temp.vf_mode] == 'random' and getattr(temp, 'random_choice', None) == 'firemouth'):
+                    if not temp.mouth_was_open:
+                        cv2.putText(out, 'Open your mouth!', (15, 65), cv2.FONT_HERSHEY_COMPLEX, 1.9, (0,0,255), 4, cv2.LINE_AA)
         out_rgb = cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
         self.frame = out_rgb.copy()
         img = Image.fromarray(out_rgb)
