@@ -89,6 +89,9 @@ filter_imgs = {
 }
 filter_types = list(filter_imgs.keys())
 
+# Global variable for multi-face mouth state tracking
+face_mouth_states = {}
+
 # ----- Utility functions -----
 
 def overlay_png(bg, fg, x, y, w, h):
@@ -526,11 +529,36 @@ def compute_eye_center_and_angle(landmarks, w, h):
     return tuple(center.astype(int)), angle
 
 def is_mouth_open(face_lms, w, h, threshold=8):
-    # Gunakan landmark bibir atas (13) dan bawah (14)
+    # Gunakan landmark bibir atas (13) dan bawah (14)    
     upper_lip = np.array([face_lms.landmark[13].x * w, face_lms.landmark[13].y * h])
     lower_lip = np.array([face_lms.landmark[14].x * w, face_lms.landmark[14].y * h])
     mouth_dist = np.linalg.norm(upper_lip - lower_lip)
     return mouth_dist > threshold
+
+def get_face_id(face_landmarks, w, h):
+    """Generate a unique ID for a face based on key landmarks"""
+    # Use nose tip and eye centers to create a simple face identifier
+    nose = face_landmarks.landmark[1]
+    left_eye = face_landmarks.landmark[33]
+    right_eye = face_landmarks.landmark[263]
+    
+    # Create a simple hash based on relative positions (rounded to reduce jitter)
+    nose_x = round(nose.x * w / 50) * 50  # Round to nearest 50 pixels
+    nose_y = round(nose.y * h / 50) * 50
+    eye_dist = round(abs(right_eye.x - left_eye.x) * w / 20) * 20  # Round to nearest 20 pixels
+    
+    return f"{nose_x}_{nose_y}_{eye_dist}"
+
+def any_mouth_open():
+    """Check if any tracked face has an open mouth - for GUI compatibility"""
+    global face_mouth_states
+    try:
+        if not face_mouth_states:
+            return False
+        return any(state.get('mouth_was_open', False) for state in face_mouth_states.values())
+    except (NameError, AttributeError):
+        # Fallback if face_mouth_states is not initialized
+        return False
 
 def process_videofilters(frame):
     # Global variables for animations and random filter
@@ -539,6 +567,7 @@ def process_videofilters(frame):
     global burning_surface_frames, burning_surface_count, burning_surface_index
     global rocket_frames, rocket_count, rocket_index, rocket_triggered
     global random_start_time, random_locked, random_choice
+    global face_mouth_states  # Add multi-face tracking
     img = frame
     h, w = img.shape[:2]
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -566,76 +595,102 @@ def process_videofilters(frame):
             random_locked = False
             random_choice = None
         if fname == 'none':
-            return out
+            return out        
         if fname == 'firemouth':
-            # Only use first face for firemouth
-            face = res.multi_face_landmarks[0]
-            mouth_is_open = is_mouth_open(face, w, h, threshold=15)
-            gif_x, gif_y = w//2 - fire_display_size[0]//2, h//2 - fire_display_size[1]//2
-            if 0 <= 14 < len(face.landmark):
+            # Multi-face firemouth support
+            current_time = time.time()
+            current_face_ids = set()
+            
+            # Process each detected face
+            for face in res.multi_face_landmarks:
+                face_id = get_face_id(face, w, h)
+                current_face_ids.add(face_id)
+                
+                # Initialize face state if new
+                if face_id not in face_mouth_states:
+                    face_mouth_states[face_id] = {
+                        'mouth_was_open': False,
+                        'mouth_open_start': None,
+                        'explode_triggered': False,
+                        'explode_index': 0,
+                        'burning_surface_index': 0
+                    }
+                
+                face_state = face_mouth_states[face_id]
+                mouth_is_open = is_mouth_open(face, w, h, threshold=15)
+                
+                # Calculate fire position for this face
                 lower_lip_x = int(face.landmark[14].x * w)
                 lower_lip_y = int(face.landmark[14].y * h)
                 gif_x = lower_lip_x - fire_display_size[0] // 2
-                gif_y = lower_lip_y - (fire_display_size[1]- 83) // 4
-                #gif_y = lower_lip_y + 1
-
-            current_time = time.time()
-            surface_should_display = False
-            if mouth_is_open:
-                if not mouth_was_open:
-                    mouth_open_start = current_time
-                    explode_triggered = False
-                    explode_index = 0
-                    burning_surface_index = 0
-                elif mouth_open_start:
-                    if not explode_triggered and current_time - mouth_open_start > 0.1:
-                        explode_triggered = True
-                        explode_start_time = current_time
-                    if current_time - mouth_open_start > 2.0:
-                        surface_should_display = True
-            else:
-                mouth_open_start = None
-                explode_triggered = False
-                explode_index = 0
-                burning_surface_index = 0
-
-            mouth_was_open = mouth_is_open
-
-            # --- Draw Fire Animation ---
-            if mouth_is_open and fire_frames:
-                fire_frame = fire_frames[fire_index]
-                resized_fire = cv2.resize(fire_frame, fire_display_size, interpolation=cv2.INTER_AREA)
-                out = overlay_transparent(out, resized_fire, gif_x, gif_y)
+                gif_y = lower_lip_y - (fire_display_size[1] - 83) // 4
+                
+                # Update mouth state for this face
+                surface_should_display = False
+                if mouth_is_open:
+                    if not face_state['mouth_was_open']:
+                        face_state['mouth_open_start'] = current_time
+                        face_state['explode_triggered'] = False
+                        face_state['explode_index'] = 0
+                        face_state['burning_surface_index'] = 0
+                    elif face_state['mouth_open_start']:
+                        if not face_state['explode_triggered'] and current_time - face_state['mouth_open_start'] > 0.1:
+                            face_state['explode_triggered'] = True
+                        if current_time - face_state['mouth_open_start'] > 2.0:
+                            surface_should_display = True
+                else:
+                    face_state['mouth_open_start'] = None
+                    face_state['explode_triggered'] = False
+                    face_state['explode_index'] = 0
+                    face_state['burning_surface_index'] = 0
+                
+                face_state['mouth_was_open'] = mouth_is_open
+                
+                # --- Draw Fire Animation for this face ---
+                if mouth_is_open and fire_frames:
+                    fire_frame = fire_frames[fire_index]
+                    resized_fire = cv2.resize(fire_frame, fire_display_size, interpolation=cv2.INTER_AREA)
+                    out = overlay_transparent(out, resized_fire, gif_x, gif_y)
+                
+                # --- Draw Explosion Animation for this face ---
+                if face_state['explode_triggered'] and explode_frames:
+                    if face_state['explode_index'] < explode_frame_count:
+                        explode_frame = explode_frames[face_state['explode_index']]
+                        explosion_display_size = (explode_frame.shape[1], explode_frame.shape[0])
+                        exp_x = gif_x + (fire_display_size[0] - explosion_display_size[0]) // 2
+                        exp_y = gif_y + fire_display_size[1] - 250
+                        out = overlay_transparent(out, explode_frame, exp_x, exp_y)
+                        face_state['explode_index'] += 1
+                    else:
+                        face_state['explode_triggered'] = False
+                        face_state['explode_index'] = 0
+                
+                # --- Draw Burning Surface Animation for this face ---
+                if surface_should_display and burning_surface_count:
+                    burning_frame = burning_surface_frames[face_state['burning_surface_index']]
+                    burning_h, burning_w = burning_frame.shape[:2]
+                    # Position at bottom center of the frame
+                    burning_x = (w - burning_w) // 2
+                    burning_y = h - burning_h
+                    out = overlay_transparent(out, burning_frame, burning_x, burning_y)
+                    face_state['burning_surface_index'] = (face_state['burning_surface_index'] + 1) % burning_surface_count
+                else:
+                    face_state['burning_surface_index'] = 0
+              # Clean up old face states that are no longer detected
+            face_ids_to_remove = [fid for fid in face_mouth_states.keys() if fid not in current_face_ids]
+            for fid in face_ids_to_remove:
+                del face_mouth_states[fid]
+            
+            # Update global mouth_was_open for GUI compatibility
+            mouth_was_open = any_mouth_open()
+            
+            # Advance global fire animation index
+            if any(is_mouth_open(face, w, h, threshold=15) for face in res.multi_face_landmarks):
                 fire_index = (fire_index + 1) % fire_frame_count
             else:
                 fire_index = 0
-
-            # --- Draw Explosion Animation ---
-            if explode_triggered and explode_frames:
-                if explode_index < explode_frame_count:
-                    explode_frame = explode_frames[explode_index]
-                    explosion_display_size = (explode_frame.shape[1], explode_frame.shape[0])
-                    exp_x = gif_x + (fire_display_size[0] - explosion_display_size[0]) // 2
-                    exp_y = gif_y + fire_display_size[1] - 250
-                    out = overlay_transparent(out, explode_frame, exp_x, exp_y)
-                    explode_index += 1
-                else:
-                    explode_triggered = False
-                    explode_index = 0
-
-            # --- Draw Burning Surface Animation ---
-            if surface_should_display and burning_surface_count:  
-                # Mengikuti logika sama persis dengan kode inspirasi
-                burning_frame = burning_surface_frames[burning_surface_index]
-                burning_h, burning_w = burning_frame.shape[:2]
-                # Posisi di tengah-bawah frame
-                burning_x = (w - burning_w) // 2
-                burning_y = h - burning_h
-                out = overlay_transparent(out, burning_frame, burning_x, burning_y)
-                burning_surface_index = (burning_surface_index + 1) % burning_surface_count
-            else:
-                burning_surface_index = 0
-            return out        # Heart filter with smile detection and improved tracking
+            
+            return out# Heart filter with smile detection and improved tracking
         if fname == 'heart':
             # Only show heart when user is smiling
             for face in res.multi_face_landmarks:
@@ -846,7 +901,9 @@ def init_firemouth_assets():
     global fire_frames, fire_frame_count, fire_display_size
     global explode_frames, explode_frame_count, fire_index, explode_index
     global explode_triggered, explode_start_time, mouth_open_start, mouth_was_open
-    global burning_surface_frames, burning_surface_count, burning_surface_index    
+    global burning_surface_frames, burning_surface_count, burning_surface_index
+    global face_mouth_states  # New dictionary to track multiple faces
+    
     fire_frames = load_gif_frames('filters/fire.gif', scale=1.5, remove_black=True, flip_vertically=True)
     fire_frame_count = len(fire_frames)
     fire_index = 0
@@ -861,6 +918,10 @@ def init_firemouth_assets():
     burning_surface_frames = load_gif_frames('filters/burning-surface.gif', scale=2.0, remove_black=True, flip_vertically=False)
     burning_surface_count = len(burning_surface_frames)
     burning_surface_index = 0
+    
+    # Initialize multi-face mouth tracking
+    face_mouth_states = {}
+    
     # Initialize rocket animation assets
     global rocket_frames, rocket_count, rocket_index, rocket_triggered
     rocket_frames = load_gif_frames('filters/rocket.gif', scale=1.5, remove_black=True, flip_vertically=False)
