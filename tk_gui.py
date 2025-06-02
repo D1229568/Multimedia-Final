@@ -24,6 +24,8 @@ class FaceFilterApp:
         self.mode_label = tk.StringVar()
         self.cap = cv2.VideoCapture(0)
         self.voice_status = tk.StringVar(value='')
+        # Add camera state tracking
+        self.using_phone_camera = False
         self.create_widgets()
         self.update_video()
 
@@ -90,8 +92,7 @@ class FaceFilterApp:
                             command=lambda i=idx: self.select_bg(i))
             btn.grid(row=0, column=idx+1, padx=2, pady=2)
             self.bg_buttons.append(btn)
-            self.bg_indices.append(idx)
-        # Rocket background button
+            self.bg_indices.append(idx)        # Rocket background button
         rocket_idx = len(temp.bg_images) + 1
         rocket_btn = tk.Button(self.bg_buttons_frame, text='Rocket', width=10,
                                command=lambda i=rocket_idx-1: self.select_bg(i))
@@ -105,11 +106,14 @@ class FaceFilterApp:
         action_frame.pack(pady=(0, 8))
         tk.Button(action_frame, text='Screenshot', width=16, command=self.screenshot).pack(side='left', padx=8)
         tk.Button(action_frame, text='Record', width=16, command=self.toggle_record).pack(side='left', padx=8)
-        tk.Button(action_frame, text='Use Your Phone', width=16, command=self.switch_to_phone_camera).pack(side='left', padx=8)
+        self.phone_camera_btn = tk.Button(action_frame, text='Use Your Phone', width=16, command=self.switch_to_phone_camera)
+        self.phone_camera_btn.pack(side='left', padx=8)
+        self.laptop_camera_btn = tk.Button(action_frame, text='Use Laptop Webcam', width=16, command=self.switch_to_laptop_camera, state='disabled')
+        self.laptop_camera_btn.pack(side='left', padx=8)
 
         # Status
         status_frame = tk.Frame(self.root)
-        status_frame.pack(pady=(0, 4))
+        status_frame.pack(pady=(0, 4))        
         tk.Label(status_frame, textvariable=self.mode_label, font=('Arial', 10, 'bold')).pack(side='left', padx=8)
         tk.Label(status_frame, textvariable=self.filter_label, font=('Arial', 10)).pack(side='left', padx=8)
         tk.Label(status_frame, textvariable=self.voice_status, font=('Arial', 10, 'italic'), fg='blue').pack(side='left', padx=8)
@@ -127,6 +131,26 @@ class FaceFilterApp:
                 messagebox.showerror("Connection Failed", f"Could not connect to {url}")
             else:
                 messagebox.showinfo("Success", f"Now using phone camera: {url}")
+                self.using_phone_camera = True
+                # Update button states
+                self.phone_camera_btn.config(state='disabled')
+                self.laptop_camera_btn.config(state='normal')
+
+    def switch_to_laptop_camera(self):
+        # Release the current capture first
+        if self.cap is not None:
+            self.cap.release()
+        
+        # Connect to laptop webcam
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            messagebox.showerror("Camera Error", "Could not open laptop webcam")
+        else:
+            messagebox.showinfo("Success", "Now using laptop webcam")
+            self.using_phone_camera = False
+            # Update button states
+            self.phone_camera_btn.config(state='normal')
+            self.laptop_camera_btn.config(state='disabled')
 
 
     def select_filter(self, idx):
