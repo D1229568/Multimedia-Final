@@ -92,19 +92,35 @@ filter_types = list(filter_imgs.keys())
 # ----- Utility functions -----
 
 def overlay_png(bg, fg, x, y, w, h):
-    fg = cv2.resize(fg, (w, h), interpolation=cv2.INTER_AREA)
-    # Pastikan overlay tidak keluar dari frame
-    h_bg, w_bg = bg.shape[:2]
-    x1, y1 = max(0, x), max(0, y)
-    x2, y2 = min(x + w, w_bg), min(y + h, h_bg)
-    fx1, fy1 = x1 - x, y1 - y
-    fx2, fy2 = fx1 + (x2 - x1), fy1 + (y2 - y1)
+    if fg is None:
+        return bg
+    
+    # Resize filter to target size
+    resized = cv2.resize(fg, (w, h), interpolation=cv2.INTER_AREA)
+    
+    # Get actual dimensions of the resized filter
+    fh, fw = resized.shape[:2]
+    
+    # Calculate overlay region - center the filter at target position
+    x1 = int(x - fw // 2)
+    y1 = int(y - fh // 2)
+    x2 = x1 + fw
+    y2 = y1 + fh
+    
+    # Handle out-of-bounds
+    bx1, by1 = max(0, x1), max(0, y1)
+    bx2, by2 = min(bg.shape[1], x2), min(bg.shape[0], y2)
+    fx1, fy1 = bx1 - x1, by1 - y1
+    fx2, fy2 = fx1 + (bx2 - bx1), fy1 + (by2 - by1)
+    
     if fx2 <= fx1 or fy2 <= fy1:
-        return bg  # Tidak ada area yang bisa di-overlay
-    alpha = fg[fy1:fy2, fx1:fx2, 3] / 255.0
+        return bg  # No area to overlay
+    
+    # Alpha blending
+    alpha = resized[fy1:fy2, fx1:fx2, 3] / 255.0
     for c in range(3):
-        bg[y1:y2, x1:x2, c] = (
-            bg[y1:y2, x1:x2, c] * (1 - alpha) + fg[fy1:fy2, fx1:fx2, c] * alpha
+        bg[by1:by2, bx1:bx2, c] = (
+            bg[by1:by2, bx1:bx2, c] * (1 - alpha) + resized[fy1:fy2, fx1:fx2, c] * alpha
         )
     return bg
 
@@ -343,6 +359,7 @@ draw_points = []
 sb_mode = 0  # 0: Manos, 1: Tablero
 
 def apply_homography(source, dstMat, imageFace):
+    """Enhanced homography application with better handling of rotated images"""
     if source is None or len(source.shape) != 3 or source.shape[2] != 4:
         print("[ERROR] Invalid source image for homography")
         return imageFace
@@ -351,41 +368,52 @@ def apply_homography(source, dstMat, imageFace):
     # source corners in TL, TR, BR, BL order
     srcMat = np.array([[0, 0], [srcW, 0], [srcW, srcH], [0, srcH]], dtype=np.float32)
     
-    # Pastikan dstMat valid
+    # Validate destination matrix
     if not isinstance(dstMat, np.ndarray) or dstMat.shape != (4, 2):
         print("[ERROR] Invalid destination points for homography")
         return imageFace
     
-    # compute homography dengan mode yang lebih robust
-    H, _ = cv2.findHomography(srcMat, dstMat, cv2.RANSAC, 5.0)
-    if H is None:
-        print("[ERROR] Could not compute homography")
-        return imageFace
-        
-    # Warp dengan interpolasi yang lebih baik
-    warped = cv2.warpPerspective(
-        source, H, (imageFace.shape[1], imageFace.shape[0]),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_TRANSPARENT
-    )
+    try:
+        # Compute homography with improved parameters
+        H, mask = cv2.findHomography(srcMat, dstMat, cv2.RANSAC, 3.0)
+        if H is None:
+            print("[ERROR] Could not compute homography")
+            return imageFace
+            
+        # Warp with better interpolation
+        warped = cv2.warpPerspective(
+            source, H, (imageFace.shape[1], imageFace.shape[0]),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=[0, 0, 0, 0]
+        )
 
-    # split out the channels and alpha mask dengan normalisasi yang lebih baik
-    overlay_img = warped[:, :, :3].astype(float)
-    overlay_mask = warped[:, :, 3:].astype(float) / 255.0
-    background_mask = 1.0 - overlay_mask
-
-    # composite
-    # Pastikan shape mask dan imageFace cocok
-    h, w = imageFace.shape[:2]
-    oh, ow = overlay_mask.shape[:2]
-    if oh != h or ow != w:
-        overlay_img = cv2.resize(overlay_img, (w, h), interpolation=cv2.INTER_AREA)
-        overlay_mask = cv2.resize(overlay_mask, (w, h), interpolation=cv2.INTER_AREA)
+        # Enhanced alpha blending
+        overlay_img = warped[:, :, :3].astype(np.float32)
+        overlay_mask = warped[:, :, 3:].astype(np.float32) / 255.0
         background_mask = 1.0 - overlay_mask
-    for c in range(3):
-        imageFace[:, :, c] = (imageFace[:, :, c] * background_mask[:, :, 0] +
-                              overlay_img[:, :, c] * overlay_mask[:, :, 0])
-    return imageFace
+
+        # Ensure proper dimensions
+        h, w = imageFace.shape[:2]
+        oh, ow = overlay_mask.shape[:2]
+        if oh != h or ow != w:
+            overlay_img = cv2.resize(overlay_img, (w, h), interpolation=cv2.INTER_LINEAR)
+            overlay_mask = cv2.resize(overlay_mask, (w, h), interpolation=cv2.INTER_LINEAR)
+            background_mask = 1.0 - overlay_mask
+        
+        # Apply blending
+        imageFace_float = imageFace.astype(np.float32)
+        for c in range(3):
+            imageFace_float[:, :, c] = (
+                imageFace_float[:, :, c] * background_mask[:, :, 0] +
+                overlay_img[:, :, c] * overlay_mask[:, :, 0]
+            )
+        
+        return imageFace_float.astype(np.uint8)
+        
+    except Exception as e:
+        print(f"[ERROR] Homography failed: {e}")
+        return imageFace
 
 
 def process_smartboard(frame):
@@ -414,34 +442,41 @@ def rotate_image(image, angle):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
     
     h, w = image.shape[:2]
-    # Tambah padding untuk menghindari cropping saat rotasi
-    pad = int(max(h, w) * 1.0)  # Tambah padding lebih besar
     
-    # Buat border dengan alpha=0
-    pad_img = cv2.copyMakeBorder(
-        image, pad, pad, pad, pad,
-        cv2.BORDER_CONSTANT,
-        value=[0,0,0,0]
-    )
+    # Calculate the bounding box of the rotated image to prevent cropping
+    angle_rad = np.radians(angle)
+    cos_a = abs(np.cos(angle_rad))
+    sin_a = abs(np.sin(angle_rad))
     
-    # Hitung rotasi dari tengah dengan interpolasi yang lebih baik
-    ph, pw = pad_img.shape[:2]
-    M = cv2.getRotationMatrix2D((pw/2, ph/2), angle, 1.0)
+    # New dimensions after rotation to fit the entire rotated image
+    new_w = int(h * sin_a + w * cos_a)
+    new_h = int(h * cos_a + w * sin_a)
     
-    # Aplikasikan rotasi dengan handle alpha channel
+    # Create rotation matrix with adjusted center
+    center_x, center_y = w // 2, h // 2
+    M = cv2.getRotationMatrix2D((center_x, center_y), angle, 1.0)
+    
+    # Adjust translation to center the rotated image in the new dimensions
+    M[0, 2] += (new_w // 2) - center_x
+    M[1, 2] += (new_h // 2) - center_y
+    
+    # Apply rotation with new dimensions
     rotated = cv2.warpAffine(
-        pad_img, M, (pw, ph),
+        image, M, (new_w, new_h),
         flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_TRANSPARENT
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=[0, 0, 0, 0]
     )
     
-    # Crop kembali ke ukuran asli dari tengah
-    startx = (pw-w)//2
-    starty = (ph-h)//2
-    return rotated[starty:starty+h, startx:startx+w]
+    return rotated
 
-# Smoothing buffer for glasses landmarks
-smooth_glasses = {'points': None, 'alpha': 0.5}
+# Enhanced smoothing buffer with multiple landmarks
+face_landmark_buffer = {
+    'left_eye': {'points': None, 'alpha': 0.3},
+    'right_eye': {'points': None, 'alpha': 0.3},
+    'nose': {'points': None, 'alpha': 0.25},
+    'chin': {'points': None, 'alpha': 0.4}
+}
 
 def smooth_landmarks(new_points, buffer, alpha=0.5):
     if buffer['points'] is None:
@@ -450,12 +485,38 @@ def smooth_landmarks(new_points, buffer, alpha=0.5):
         buffer['points'] = alpha * np.array(new_points) + (1 - alpha) * buffer['points']
     return buffer['points']
 
-# Calculate roll angle
-def calculate_face_angle(l, r): return np.degrees(np.arctan2(r[1]-l[1], r[0]-l[0]))
+# Enhanced face angle calculation with outlier rejection
+def calculate_face_angle_robust(face_landmarks, w, h):
+    """Calculate face angle with improved accuracy and smoothing"""
+    # Get multiple reference points for better stability
+    left_eye = np.array([face_landmarks.landmark[33].x * w, face_landmarks.landmark[33].y * h])
+    right_eye = np.array([face_landmarks.landmark[263].x * w, face_landmarks.landmark[263].y * h])
+    
+    # Additional reference points for cross-validation
+    left_temple = np.array([face_landmarks.landmark[21].x * w, face_landmarks.landmark[21].y * h])
+    right_temple = np.array([face_landmarks.landmark[251].x * w, face_landmarks.landmark[251].y * h])
+    
+    # Calculate angles from different reference points
+    eye_angle = np.degrees(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
+    temple_angle = np.degrees(np.arctan2(right_temple[1] - left_temple[1], right_temple[0] - left_temple[0]))
+    
+    # Take weighted average (eyes are more reliable than temples)
+    final_angle = 0.7 * eye_angle + 0.3 * temple_angle
+    
+    # Clamp angle to reasonable range
+    final_angle = max(min(final_angle, 45), -45)
+    
+    return final_angle
 
-# Smoothing buffer
+# Calculate roll angle
+def calculate_face_angle(l, r): 
+    return np.degrees(np.arctan2(r[1]-l[1], r[0]-l[0]))
+
+# Enhanced smoothing buffer with adaptive smoothing
 angle_buffer = 0.0
-smoothing = 0.2
+smoothing = 0.15  # Reduced for more responsive tracking
+angle_history = []  # Track angle history for outlier detection
+max_history = 5
 
 def compute_eye_center_and_angle(landmarks, w, h):
     left_eye = np.array([landmarks[33].x * w, landmarks[33].y * h])
@@ -574,8 +635,7 @@ def process_videofilters(frame):
                 burning_surface_index = (burning_surface_index + 1) % burning_surface_count
             else:
                 burning_surface_index = 0
-            return out
-        # Heart filter with smile detection
+            return out        # Heart filter with smile detection and improved tracking
         if fname == 'heart':
             # Only show heart when user is smiling
             for face in res.multi_face_landmarks:
@@ -584,15 +644,13 @@ def process_videofilters(frame):
                     if fimg is not None:
                         # Get heart position and size using hat positioning
                         x, y, fw, fh = dst_hat(face, out)
-                        # Apply rotation based on face angle
-                        l = np.array([face.landmark[33].x * w, face.landmark[33].y * h])
-                        r = np.array([face.landmark[263].x * w, face.landmark[263].y * h])
-                        roll = calculate_face_angle(l, r)
-                        roll = max(min(roll, 45), -45)
+                        # Apply improved rotation based on face angle
+                        roll = calculate_face_angle_robust(face, w, h)
                         angle_buffer = smoothing * roll + (1 - smoothing) * angle_buffer
                         ang = -angle_buffer
                         rotated_heart = rotate_image(fimg, ang)
-                        out = overlay_png(out, rotated_heart, x, y, fw, fh)
+                        # Use center-based positioning for better alignment
+                        out = overlay_png(out, rotated_heart, x + fw//2, y + fh//2, fw, fh)
                 else:
                     # Show text prompt when not smiling
                     cv2.putText(out, 'Smile to see hearts!', (50, 50), 
@@ -604,22 +662,50 @@ def process_videofilters(frame):
         fimg = filter_imgs[fname]
         if fimg is None or (fname == 'ironman' and (fimg is None or fimg.shape[2] != 4)):
             print(f"[ERROR] Filter image for '{fname}' is missing or not RGBA!")
-            return out
+            return out        
+        
         for face in res.multi_face_landmarks:
-            l = np.array([(face.landmark[33].x*w), int(face.landmark[33].y*h)])
-            r = np.array([(face.landmark[263].x*w), int(face.landmark[263].y*h)])
-            roll = calculate_face_angle(l, r)
-            roll = max(min(roll, 45), -45)
-            angle_buffer = smoothing*roll + (1-smoothing)*angle_buffer
+            # Use enhanced face angle calculation with smoothing
+            l = np.array([face.landmark[33].x * w, face.landmark[33].y * h])
+            r = np.array([face.landmark[263].x * w, face.landmark[263].y * h])
+            
+            # Calculate robust face angle
+            roll = calculate_face_angle_robust(face, w, h)
+            
+            # Apply outlier detection and smoothing
+            global angle_history
+            angle_history.append(roll)
+            if len(angle_history) > max_history:
+                angle_history.pop(0)
+            
+            # Remove outliers using median filtering
+            if len(angle_history) >= 3:
+                sorted_angles = sorted(angle_history)
+                median_angle = sorted_angles[len(sorted_angles) // 2]
+                # If current angle is too far from median, use median instead
+                if abs(roll - median_angle) > 15:  # 15 degree threshold
+                    roll = median_angle
+            
+            # Enhanced smoothing
+            angle_buffer = smoothing * roll + (1 - smoothing) * angle_buffer
             ang = -angle_buffer
-            # Gunakan dst_complete_face dengan filter_name untuk fullface
+            
+            # Smooth landmark positions for better filter stability
+            left_eye_smooth = smooth_landmarks([l[0], l[1]], face_landmark_buffer['left_eye'], 0.3)
+            right_eye_smooth = smooth_landmarks([r[0], r[1]], face_landmark_buffer['right_eye'], 0.3)
+            
+            # Use dst_complete_face with filter_name for fullface filters
             if fname in ['ironman', 'anonymous', 'monster', 'oxygen_mask']:
                 dst = dst_complete_face(face, out, fname)
             else:
                 dst = dst_funcs[fname](face, out)
+                
+            # Apply filters with improved rotation handling
             if fname in ['hat', 'crown', 'clownhat']:
-                x,y,fw,fh = dst
-                out = overlay_png(out, rotate_image(fimg, ang), x, y, fw, fh)
+                x, y, fw, fh = dst
+                rotated_filter = rotate_image(fimg, ang)
+                # Use center-based positioning for better alignment
+                out = overlay_png(out, rotated_filter, x + fw//2, y + fh//2, fw, fh)
             elif fname == 'glasses':
                 rotated = rotate_image(fimg, ang)
                 out = apply_homography(rotated, dst, out)
@@ -629,22 +715,23 @@ def process_videofilters(frame):
             elif fname in ['dog', 'clown']:
                 rotated = rotate_image(fimg, ang)
                 x, y, fw, fh = dst
-                out = overlay_png(out, rotated, x, y, fw, fh)
-                # If clownnose, also overlay clownhat
+                out = overlay_png(out, rotated, x + fw//2, y + fh//2, fw, fh)
+                
+                # If clownnose, also overlay clownhat with proper rotation
                 if fname == 'clown':
                     hat_img = filter_imgs.get('clownhat')
                     if hat_img is not None:
                         rotated_hat = rotate_image(hat_img, ang)
                         xh, yh, fwh, fhh = dst_hat(face, out)
-                        out = overlay_png(out, rotated_hat, xh, yh, fwh, fhh)
+                        out = overlay_png(out, rotated_hat, xh + fwh//2, yh + fhh//2, fwh, fhh)
 
                 if fname == 'dog':
                     ear_img = filter_imgs.get('dogear')
                     if ear_img is not None:
                         rotated_ear = rotate_image(ear_img, ang)
                         xh, yh, fwh, fhh = dst_hat(face, out)
-                        out = overlay_png(out, rotated_ear, xh, yh, fwh, fhh)
-            # Add special case for shirt overlays
+                        out = overlay_png(out, rotated_ear, xh + fwh//2, yh + fhh//2, fwh, fhh)
+            # Special case for shirt overlays with improved positioning
             elif fname in ['shirt', 'shirt2']:
                 # Pre-resize the shirt image to fixed dimensions before rotation
                 fixed_shirt = cv2.resize(fimg, (500, 1500), interpolation=cv2.INTER_AREA)
@@ -654,12 +741,12 @@ def process_videofilters(frame):
                     out = apply_homography(rotated, dst, out)
             else:
                 rotated = rotate_image(fimg, ang)
-                # only run homography if dst is exactly a 4×2 np.ndarray
+                # Apply homography for 4-point transforms or overlay for simple positioning
                 if isinstance(dst, np.ndarray) and dst.shape == (4,2):
                     out = apply_homography(rotated, dst, out)
                 elif isinstance(dst, tuple) and len(dst)==4:
-                    x,y,w,h = dst
-                    out = overlay_png(out, rotated, x, y, w, h)
+                    x, y, w, h = dst
+                    out = overlay_png(out, rotated, x + w//2, y + h//2, w, h)
                 else:
                     print(f"[DEBUG] skipping homography, dst invalid: {dst!r}")
             
