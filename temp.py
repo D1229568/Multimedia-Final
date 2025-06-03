@@ -253,10 +253,9 @@ def dst_nose(face_lms, img):
     y = int(nose_tip.y * h - overlay_height / 2 - offset)
     return (x, y, int(overlay_width), int(overlay_height))
 
-def dst_shirt(img):
-    """Detect shirt position using pose detection (shoulders and hips) without requiring face landmarks"""
+def dst_shirt(face_lms, img):
     h, w = img.shape[:2]
-    # Get pose detection results
+    # Dapatkan hasil pose detection
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     pose_result = mp_pose.process(img_rgb)
     if pose_result.pose_landmarks:
@@ -276,7 +275,7 @@ def dst_shirt(img):
         center = points.mean(axis=0)
         points = (points - center) * scale + center
         return points
-    # If pose not detected, don't display anything
+    # Jika pose tidak terdeteksi, jangan tampilkan apa-apa
     return None
 
 def dst_heart(face_lms, img):
@@ -349,6 +348,8 @@ dst_funcs = {
     'dogear':       dst_hat,
     'clown':        dst_nose,
     'clownhat':     dst_hat,
+    'shirt':        dst_shirt,
+    'shirt2':       dst_shirt,
     'is_smiling':        dst_hat,
 }
 
@@ -572,45 +573,6 @@ def process_videofilters(frame):
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     res = mp_face_mesh.process(rgb)
     out = img.copy()
-    
-    # Handle shirt filters first (independent of face detection)
-    fname = filter_types[vf_mode]
-    if fname == 'random':
-        now = time.time()
-        if random_start_time is None:
-            random_start_time = now
-            random_locked = False
-        # pick a choice while rolling or locked final
-        if not random_locked:
-            candidates = [f for f in filter_types if f not in ('none','random','dogear','clownhat')]
-            random_choice = candidates[randint(0, len(candidates)-1)]
-            # lock after duration
-            if now - random_start_time >= random_duration:
-                random_locked = True
-        fname = random_choice
-    else:
-        # reset random timing when switching filters
-        random_start_time = None
-        random_locked = False
-        random_choice = None
-    
-    # Handle shirt filters independently of face detection
-    if fname in ['shirt', 'shirt2']:
-        if fname == 'none':
-            return out
-        fimg = filter_imgs[fname]
-        if fimg is not None:
-            # Get shirt position using pose detection only
-            dst = dst_shirt(out)
-            if dst is not None:
-                # Pre-resize the shirt image to fixed dimensions
-                fixed_shirt = cv2.resize(fimg, (500, 1500), interpolation=cv2.INTER_AREA)
-                # Apply homography if valid destination points are found
-                if isinstance(dst, np.ndarray) and dst.shape == (4, 2):
-                    out = apply_homography(fixed_shirt, dst, out)
-        return out
-    
-    # Continue with face-dependent filters
     if res.multi_face_landmarks:
         fname = filter_types[vf_mode]
         # Timed random filter: roll choices for a duration, then lock in one
@@ -809,20 +771,29 @@ def process_videofilters(frame):
                 rotated = rotate_image(fimg, ang)
                 x, y, fw, fh = dst
                 out = overlay_png(out, rotated, x + fw//2, y + fh//2, fw, fh)
-                  # If clownnose, also overlay clownhat with proper rotation
+                
+                # If clownnose, also overlay clownhat with proper rotation
                 if fname == 'clown':
                     hat_img = filter_imgs.get('clownhat')
                     if hat_img is not None:
                         rotated_hat = rotate_image(hat_img, ang)
                         xh, yh, fwh, fhh = dst_hat(face, out)
                         out = overlay_png(out, rotated_hat, xh + fwh//2, yh + fhh//2, fwh, fhh)
-                
+
                 if fname == 'dog':
                     ear_img = filter_imgs.get('dogear')
                     if ear_img is not None:
                         rotated_ear = rotate_image(ear_img, ang)
                         xh, yh, fwh, fhh = dst_hat(face, out)
                         out = overlay_png(out, rotated_ear, xh + fwh//2, yh + fhh//2, fwh, fhh)
+            # Special case for shirt overlays with improved positioning
+            elif fname in ['shirt', 'shirt2']:
+                # Pre-resize the shirt image to fixed dimensions before rotation
+                fixed_shirt = cv2.resize(fimg, (500, 1500), interpolation=cv2.INTER_AREA)
+                rotated = rotate_image(fixed_shirt, -ang)
+                # Only apply if homography destination points are valid
+                if isinstance(dst, np.ndarray) and dst.shape == (4, 2):
+                    out = apply_homography(rotated, dst, out)
             else:
                 rotated = rotate_image(fimg, ang)
                 # Apply homography for 4-point transforms or overlay for simple positioning
