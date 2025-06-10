@@ -190,11 +190,16 @@ def dst_glasses(face_lms, img):
 
 def dst_hat(face_lms, img):
     h, w = img.shape[:2]
-    forehead = face_lms.landmark[10]
-    width  = int(w * 0.3)
+    # Compute width based on face width (distance between eyes)
+    left_eye = face_lms.landmark[33]
+    right_eye = face_lms.landmark[263]
+    face_width = abs(right_eye.x - left_eye.x) * w
+    width = int(face_width * 2.2)
     height = int(width * filter_imgs['hat'].shape[0] / filter_imgs['hat'].shape[1])
-    x = int(forehead.x*w) - width//2
-    y = int(forehead.y*h) - height
+    # Position at forehead
+    forehead = face_lms.landmark[10]
+    x = int(forehead.x * w) - width // 2
+    y = int(forehead.y * h) - height
     return (x, y, width, height)
 
 def dst_bigote(face_lms, img):
